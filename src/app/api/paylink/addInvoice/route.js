@@ -67,6 +67,22 @@ export async function POST(request) {
     const referenceNumber = generateReferenceNumber();
     
     // Calculate amount based on subscription details
+    // Ensure amount_paid is a valid number before formatting
+    if (subscription.amount_paid === undefined || subscription.amount_paid === null) {
+      console.error('Missing amount_paid in subscription:', subscription);
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Invalid subscription amount',
+          message: 'Subscription amount is missing or invalid' 
+        },
+        { status: 400 }
+      );
+    }
+    
+    // Log the amount for debugging
+    console.log('Processing amount:', subscription.amount_paid, typeof subscription.amount_paid);
+    
     const amount = formatAmount(subscription.amount_paid);
     
     // Prepare the invoice data for Paylink.sa

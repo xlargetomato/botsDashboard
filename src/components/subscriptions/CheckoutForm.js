@@ -125,7 +125,7 @@ export default function CheckoutForm() {
     if (!formData.phoneNumber.trim()) errors.phoneNumber = 'Phone number is required';
     if (!formData.address.trim()) errors.address = 'Address is required';
     if (!formData.city.trim()) errors.city = 'City is required';
-    if (!formData.zipCode.trim()) errors.zipCode = 'Zip code is required';
+    // Make zipCode optional
     return errors;
   };
 

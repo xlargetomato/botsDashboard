@@ -134,9 +134,18 @@ export function generateReferenceNumber(prefix = 'WP') {
 
 /**
  * Format amount as required by Paylink (2 decimal places)
- * @param {number} amount - Amount to format
+ * @param {number|string} amount - Amount to format
  * @returns {number} Formatted amount
  */
 export function formatAmount(amount) {
-  return parseFloat(amount.toFixed(2));
+  // Ensure amount is a number
+  const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+  
+  // Check if it's a valid number
+  if (isNaN(numAmount)) {
+    console.error('Invalid amount provided to formatAmount:', amount);
+    return 0.00; // Default to zero if invalid
+  }
+  
+  return parseFloat(numAmount.toFixed(2));
 }
