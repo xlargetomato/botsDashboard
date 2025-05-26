@@ -4,17 +4,75 @@ import { useTranslation } from '@/lib/i18n/config';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import CurrencySymbol from '@/components/subscriptions/CurrencySymbol';
 
 export default function Home() {
   const { t, i18n } = useTranslation();
   const { theme } = useTheme();
+  const router = useRouter();
   const isRtl = i18n.language === 'ar';
   const [isLoaded, setIsLoaded] = useState(false);
+  const [subscriptionPlans, setSubscriptionPlans] = useState([]);
+  const [subscriptionType, setSubscriptionType] = useState('yearly');
+  const [loading, setLoading] = useState(true);
 
   // Animation effect on page load
   useEffect(() => {
     setIsLoaded(true);
+    
+    // Fetch subscription plans
+    const fetchSubscriptionPlans = async () => {
+      try {
+        const response = await fetch('/api/subscriptions/plans');
+        if (response.ok) {
+          const data = await response.json();
+          setSubscriptionPlans(data.plans || []);
+        }
+      } catch (error) {
+        console.error('Error fetching subscription plans:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchSubscriptionPlans();
   }, []);
+  
+  // Handle subscription type change
+  const handleSubscriptionTypeChange = (type) => {
+    setSubscriptionType(type);
+  };
+  
+  // Handle plan selection
+  const handleSelectPlan = (plan) => {
+    // Get price based on selected subscription type
+    let price;
+    switch (subscriptionType) {
+      case 'weekly':
+        price = parseFloat(plan.price_weekly) || parseFloat(plan.price_monthly) / 4 || 0;
+        break;
+      case 'monthly':
+        price = parseFloat(plan.price_monthly) || 0;
+        break;
+      case 'yearly':
+      default:
+        price = parseFloat(plan.price_yearly) || 0;
+        break;
+    }
+    
+    // Store selected plan in session storage
+    sessionStorage.setItem('selectedPlan', JSON.stringify({
+      id: plan.id,
+      name: plan.name,
+      price: price,
+      type: subscriptionType,
+      subscription_type: subscriptionType
+    }));
+    
+    // Redirect to login if not authenticated, or to checkout if authenticated
+    router.push('/login?redirect=/dashboard/client/subscriptions/checkout');
+  };
 
   return (
     <div className={`min-h-screen ${isRtl ? 'rtl' : 'ltr'} ${theme === 'dark' ? 'dark' : ''}`}>
@@ -310,6 +368,203 @@ export default function Home() {
   </div>
 </section>
 
+      {/* Subscription Plans Section */}
+      <section className="py-20 bg-gray-50 dark:bg-gray-900">
+        <div className="container mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl font-bold mb-4 text-gray-900 dark:text-white font-cairo">
+              {isRtl ? 'خطط الاشتراك' : 'Subscription Plans'}
+            </h2>
+            <p className="text-xl text-gray-600 dark:text-gray-300 max-w-3xl mx-auto font-cairo">
+              {isRtl
+                ? 'اختر خطة الاشتراك التي تناسب احتياجاتك وميزانيتك'
+                : 'Choose a subscription plan that fits your needs and budget'}
+            </p>
+            
+            {/* Subscription type selector */}
+            <div className="mt-8 inline-flex rounded-md shadow-md">
+              <button
+                type="button"
+                onClick={() => handleSubscriptionTypeChange('weekly')}
+                className={`px-4 py-2 text-sm font-medium ${isRtl ? 'rounded-r-md font-cairo' : 'rounded-l-md'} ${subscriptionType === 'weekly' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'}`}
+              >
+                {isRtl ? 'أسبوعي' : 'Weekly'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSubscriptionTypeChange('monthly')}
+                className={`px-4 py-2 text-sm font-medium ${isRtl ? 'font-cairo' : ''} ${subscriptionType === 'monthly' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'}`}
+              >
+                {isRtl ? 'شهري' : 'Monthly'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSubscriptionTypeChange('yearly')}
+                className={`px-4 py-2 text-sm font-medium ${isRtl ? 'rounded-l-md font-cairo' : 'rounded-r-md'} ${subscriptionType === 'yearly' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'}`}
+              >
+                {isRtl ? 'سنوي' : 'Yearly'}
+              </button>
+            </div>
+          </div>
+          
+          {loading ? (
+            <div className="flex justify-center items-center py-20">
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+            </div>
+          ) : subscriptionPlans.length === 0 ? (
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 text-center max-w-lg mx-auto">
+              <p className="text-gray-500 dark:text-gray-400 font-cairo">
+                {isRtl ? 'لا توجد خطط اشتراك متاحة حالياً' : 'No subscription plans available at the moment'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-8">
+              {subscriptionPlans.map((plan, index) => {
+                // Parse features
+                let features = [];
+                try {
+                  if (typeof plan.features === 'string') {
+                    const parsedFeatures = JSON.parse(plan.features);
+                    if (Array.isArray(parsedFeatures)) {
+                      if (parsedFeatures.length > 0 && parsedFeatures[0] && typeof parsedFeatures[0] === 'object') {
+                        features = parsedFeatures;
+                      } else {
+                        features = parsedFeatures.map(feature => ({
+                          en: String(feature),
+                          ar: String(feature)
+                        }));
+                      }
+                    }
+                  } else if (Array.isArray(plan.features)) {
+                    features = plan.features;
+                  }
+                } catch (error) {
+                  console.error('Error parsing plan features:', error);
+                }
+                
+                // Get price based on selected type
+                let price;
+                switch (subscriptionType) {
+                  case 'weekly':
+                    price = parseFloat(plan.price_weekly) || parseFloat(plan.price_monthly) / 4 || 0;
+                    break;
+                  case 'monthly':
+                    price = parseFloat(plan.price_monthly) || 0;
+                    break;
+                  case 'yearly':
+                  default:
+                    price = parseFloat(plan.price_yearly) || 0;
+                    break;
+                }
+                
+                const isPopular = index === 1; // Mark the second plan as popular
+                
+                return (
+                  <div key={plan.id} className={`relative bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border-t-4 ${isPopular ? 'border-t-blue-500' : 'border-t-transparent'} transition-all transform hover:-translate-y-1 hover:shadow-xl flex flex-col h-full`}>
+                    {isPopular && (
+                      <div className="absolute -top-3 left-0 right-0 mx-auto w-max px-4 py-1 bg-blue-600 text-white text-sm font-medium rounded-full shadow-md font-cairo">
+                        {isRtl ? 'الأكثر شعبية' : 'Most Popular'}
+                      </div>
+                    )}
+                    <div className={`flex ${isRtl ? 'flex-row-reverse' : ''} justify-between items-start mb-4`}>
+                      <h3 className="text-xl font-bold font-cairo text-gray-900 dark:text-white">
+                        {plan.name}
+                      </h3>
+                      <div className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-3 py-1 rounded-full text-sm font-medium">
+                        {subscriptionType === 'yearly'
+                          ? isRtl ? 'سنوي' : 'Yearly'
+                          : subscriptionType === 'monthly'
+                            ? isRtl ? 'شهري' : 'Monthly'
+                            : isRtl ? 'أسبوعي' : 'Weekly'}
+                      </div>
+                    </div>
+                    
+                    <div className="mb-6">
+                      {isRtl ? (
+                        <div className="flex flex-row-reverse items-center justify-center">
+                          <span className="text-lg font-cairo text-gray-500 dark:text-gray-400 mr-1">
+                            /{subscriptionType === 'weekly' 
+                              ? 'أسبوع'
+                              : subscriptionType === 'monthly'
+                                ? 'شهر'
+                                : 'سنة'}
+                          </span>
+                          <span className="text-4xl font-bold font-cairo text-gray-900 dark:text-white">
+                            {price.toFixed(2)}
+                          </span>
+                          <CurrencySymbol className="mr-1 text-2xl font-bold text-gray-900 dark:text-white" />
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center">
+                          <CurrencySymbol className="mx-1 text-2xl font-bold text-gray-900 dark:text-white" />
+                          <span className="text-4xl font-bold font-cairo text-gray-900 dark:text-white">
+                            {price.toFixed(2)}
+                          </span>
+                          <span className="text-lg font-cairo text-gray-500 dark:text-gray-400 ms-1">
+                            /{subscriptionType === 'weekly' 
+                              ? 'week'
+                              : subscriptionType === 'monthly'
+                                ? 'month'
+                                : 'year'}
+                          </span>
+                        </div>
+                      )}
+
+                      {subscriptionType === 'yearly' && (
+                        <p className="text-sm text-green-600 dark:text-green-400 mt-2 font-cairo text-center">
+                          {isRtl ? 'وفر 16% مقارنة بالاشتراك الشهري' : 'Save 16% compared to monthly'}
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div className="mb-6 flex-grow">
+                      <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-md mb-4">
+                        <p className="text-gray-600 dark:text-gray-300 font-cairo">
+                          {plan.description}
+                        </p>
+                      </div>
+                      
+                      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                        <h4 className="font-bold text-gray-900 dark:text-white mb-3 font-cairo">
+                          {isRtl ? 'المميزات' : 'Features'}
+                        </h4>
+                        <ul className="space-y-3">
+                          {features.map((feature, index) => (
+                            <li key={index} className="flex items-start">
+                              <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-green-500 ${isRtl ? 'ms-2' : 'me-2'} mt-0.5 flex-shrink-0`} viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                              <span className="text-gray-600 dark:text-gray-300 font-cairo">
+                                {isRtl ? (feature.ar || feature.en) : (feature.en || feature.ar)}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-auto pt-4">
+                      <button
+                        onClick={() => handleSelectPlan(plan)}
+                        className={`w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md shadow-sm font-cairo transition-colors flex items-center justify-center ${isRtl ? 'flex-row-reverse' : ''}`}
+                      >
+                        {isRtl ? 'اختر الخطة' : 'Select Plan'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+      
       {/* CTA Section - Improved with animated gradient */}
       <section className="relative py-20 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-blue-700 to-blue-800 animate-gradient-shift"></div>
