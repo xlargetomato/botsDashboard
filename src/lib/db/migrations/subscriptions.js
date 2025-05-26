@@ -41,7 +41,7 @@ export async function createSubscriptionsTable() {
 
     // Subscription plans table is already created above
 
-    // Create payment transactions table
+    // Create payment transactions table with enhanced fields for payment gateways
     await executeQuery(`
       CREATE TABLE IF NOT EXISTS payment_transactions (
         id VARCHAR(36) PRIMARY KEY,
@@ -50,8 +50,24 @@ export async function createSubscriptionsTable() {
         amount DECIMAL(10, 2) NOT NULL,
         payment_method VARCHAR(50) NOT NULL,
         transaction_id VARCHAR(255),
-        status ENUM('pending', 'completed', 'failed', 'refunded') NOT NULL,
+        status ENUM('pending', 'completed', 'failed', 'refunded', 'cancelled') NOT NULL,
         last_four_digits VARCHAR(4),
+        paylink_invoice_id VARCHAR(255),
+        paylink_reference VARCHAR(255),
+        payment_gateway_response JSON,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Create subscription history table to track all subscription events
+    await executeQuery(`
+      CREATE TABLE IF NOT EXISTS subscription_history (
+        id VARCHAR(36) PRIMARY KEY,
+        subscription_id VARCHAR(36) NOT NULL,
+        user_id VARCHAR(36) NOT NULL,
+        action VARCHAR(50) NOT NULL,
+        details JSON,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
