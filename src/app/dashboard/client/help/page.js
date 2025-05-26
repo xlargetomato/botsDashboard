@@ -10,6 +10,50 @@ import NewTicketForm from '@/components/support/NewTicketForm';
 import SupportChat from '@/components/support/SupportChat';
 import ClientFaq from '@/components/faqs/ClientFaq';
 
+// Custom styles for RTL and scrollbar hiding
+const customStyles = `
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .rtl-grid {
+    direction: rtl;
+  }
+  .mobile-tabs {
+    display: flex;
+    width: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: rgba(243, 244, 246, 1);
+    margin: 1rem 0;
+    padding: 4px;
+  }
+  .dark .mobile-tabs {
+    background-color: rgba(31, 41, 55, 0.5);
+  }
+  .mobile-tab {
+    flex: 1;
+    text-align: center;
+    padding: 8px 4px;
+    font-size: 0.875rem;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+  }
+  .mobile-tab.active {
+    background-color: white;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  }
+  .dark .mobile-tab.active {
+    background-color: rgba(55, 65, 81, 1);
+  }
+  html[dir="rtl"] .mobile-tabs {
+    flex-direction: row-reverse;
+  }
+`;
+
 export default function HelpPage() {
   const { t, i18n } = useTranslation();
   const isRtl = i18n.language === 'ar';
@@ -118,7 +162,9 @@ export default function HelpPage() {
 
   return (
     <MainLayout sidebar={<DashboardSidebar />}>
-      <div className="max-w-7xl mx-auto">
+      {/* Add custom styles */}
+      <style dangerouslySetInnerHTML={{ __html: customStyles }} />
+      <div className="w-full md:max-w-7xl mx-auto">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
           <h1 className="text-2xl font-bold font-cairo text-gray-900 dark:text-white mb-4">
             {isRtl ? 'مساعدة' : 'Help & Support'}
@@ -130,30 +176,43 @@ export default function HelpPage() {
           </p>
         </div>
 
-        {/* Tabs */}
+        {/* Mobile-friendly Tabs */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-          <div className="mt-6 border-b border-gray-200 dark:border-gray-700">
-            <div className={`flex ${isRtl ? 'space-x-reverse space-x-4' : 'space-x-4'} border-b dark:border-gray-700 mb-6`}>
+          <div className="p-4">
+            {/* Mobile tab UI - similar to native mobile apps */}
+            <div className="mobile-tabs" dir={isRtl ? 'rtl' : 'ltr'}>
               <button
                 onClick={() => setActiveTab('faq')}
-                className={`py-2 px-4 font-cairo ${activeTab === 'faq' ? 'text-blue-500 border-b-2 border-blue-500 font-medium' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
+                className={`mobile-tab font-cairo ${activeTab === 'faq' ? 'active text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400'}`}
               >
                 {isRtl ? 'الأسئلة الشائعة' : 'FAQ'}
               </button>
-
               <button
                 onClick={() => setActiveTab('support')}
-                className={`py-2 px-4 font-cairo ${activeTab === 'support' ? 'text-blue-500 border-b-2 border-blue-500 font-medium' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
+                className={`mobile-tab font-cairo ${activeTab === 'support' ? 'active text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400'}`}
               >
-                {isRtl ? 'الدعم الفني' : 'Support Tickets'}
+                {isRtl ? 'الدعم الفني' : 'Support'}
               </button>
               <button
                 onClick={() => setActiveTab('docs')}
-                className={`py-2 px-4 font-cairo ${activeTab === 'docs' ? 'text-blue-500 border-b-2 border-blue-500 font-medium' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
+                className={`mobile-tab font-cairo ${activeTab === 'docs' ? 'active text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400'}`}
               >
-                {isRtl ? 'دليل المستخدم' : 'Documentation'}
+                {isRtl ? 'دليل المستخدم' : 'Guide'}
               </button>
             </div>
+            <section className=" bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-800 overflow-hidden">
+        <div className="container mx-auto px-6">
+          <div className="relative">
+            
+            <div className="relative flex flex-col items-center justify-center space-y-6">
+              <div className="h-0.5 w-full max-w-3xl bg-gradient-to-r from-transparent via-gray-300 dark:via-gray-600 to-transparent"></div>
+              
+              
+            </div>
+          </div>
+        </div>
+      </section>
+
           </div>
           <div className="p-6">
             {/* FAQ Tab */}
@@ -284,31 +343,35 @@ export default function HelpPage() {
                       </svg>
                       {isRtl ? 'العودة إلى القائمة' : 'Back to list'}
                     </button>
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4">
-                      <div className="mb-4 pb-4 border-b dark:border-gray-700">
-                        <h2 className="text-xl font-semibold font-cairo text-gray-900 dark:text-white">
-                          {selectedTicket.subject}
-                        </h2>
-                        <div className="flex items-center mt-2">
-                          <span className={`px-2 py-1 text-xs rounded-full font-cairo ${
-                            selectedTicket.status === 'open'
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                          }`}>
-                            {selectedTicket.status === 'open'
-                              ? isRtl ? 'مفتوح' : 'Open'
-                              : isRtl ? 'مغلق' : 'Closed'}
-                          </span>
-                          <span className="ml-2 rtl:mr-2 rtl:ml-0 text-sm text-gray-500 dark:text-gray-400">
-                            {new Date(selectedTicket.created_at).toLocaleDateString()}
-                          </span>
+                    <div className="w-full max-w-full">
+                      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 mb-4">
+                        <div className="pb-4 border-b dark:border-gray-700">
+                          <h2 className="text-xl font-semibold font-cairo text-gray-900 dark:text-white">
+                            {selectedTicket.subject}
+                          </h2>
+                          <div className="flex items-center mt-2">
+                            <span className={`px-2 py-1 text-xs rounded-full font-cairo ${
+                              selectedTicket.status === 'open'
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                            }`}>
+                              {selectedTicket.status === 'open'
+                                ? isRtl ? 'مفتوح' : 'Open'
+                                : isRtl ? 'مغلق' : 'Closed'}
+                            </span>
+                            <span className="ml-2 rtl:mr-2 rtl:ml-0 text-sm text-gray-500 dark:text-gray-400">
+                              {new Date(selectedTicket.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                      <SupportChat 
-                        ticketId={selectedTicket.id} 
-                        onClose={handleBackToList}
-                        isRtl={isRtl}
-                      />
+                      <div className="w-full">
+                        <SupportChat 
+                          ticketId={selectedTicket.id} 
+                          onClose={handleBackToList}
+                          isRtl={isRtl}
+                        />
+                      </div>
                     </div>
                   </div>
                 )}

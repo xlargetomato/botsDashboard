@@ -268,14 +268,14 @@ export default function AdminTransactionsPage() {
                       {/* Amount */}
                       <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg">
                         <div className="flex items-center mb-1">
-                          <div className="h-6 w-6 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center mr-2">
+                          <div className={`h-6 w-6 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center ${isRtl ? 'ml-2' : 'mr-2'}`}>
                             <FiDollarSign className="h-3 w-3 text-green-600 dark:text-green-300" />
                           </div>
-                          <span className={`text-xs font-medium text-gray-500 dark:text-gray-400 ${isRtl ? 'font-cairo' : ''}`}>
+                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 font-cairo">
                             {isRtl ? 'المبلغ' : 'Amount'}
                           </span>
                         </div>
-                        <p className={`text-base font-bold text-gray-900 dark:text-white ${isRtl ? 'font-cairo text-right' : ''}`}>
+                        <p className={`text-base font-bold text-gray-900 dark:text-white ${isRtl ? 'font-cairo text-right' : 'font-cairo'}`}>
                           {transaction.amount ? `${transaction.amount} ${transaction.currency || 'SAR'}` : '-'}
                         </p>
                       </div>
@@ -283,14 +283,14 @@ export default function AdminTransactionsPage() {
                       {/* Payment Method */}
                       <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg">
                         <div className="flex items-center mb-1">
-                          <div className="h-6 w-6 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center mr-2">
+                          <div className={`h-6 w-6 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center ${isRtl ? 'ml-2' : 'mr-2'}`}>
                             <FiCreditCard className="h-3 w-3 text-purple-600 dark:text-purple-300" />
                           </div>
-                          <span className={`text-xs font-medium text-gray-500 dark:text-gray-400 ${isRtl ? 'font-cairo' : ''}`}>
+                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 font-cairo">
                             {isRtl ? 'طريقة الدفع' : 'Payment Method'}
                           </span>
                         </div>
-                        <p className={`text-sm font-medium text-gray-900 dark:text-white capitalize ${isRtl ? 'font-cairo text-right' : ''}`}>
+                        <p className={`text-sm font-medium text-gray-900 dark:text-white capitalize ${isRtl ? 'font-cairo text-right' : 'font-cairo'}`}>
                           {transaction.paymentMethod || transaction.method || '-'}
                         </p>
                       </div>
@@ -305,22 +305,22 @@ export default function AdminTransactionsPage() {
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-800">
                 <tr>
-                  <th scope="col" className={`px-6 py-3 ${isRtl ? 'text-right' : 'text-left'} text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo`}>
+                  <th scope="col" className="px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo text-start">
                     {isRtl ? 'معرف المعاملة' : 'Transaction ID'}
                   </th>
-                  <th scope="col" className={`px-6 py-3 ${isRtl ? 'text-right' : 'text-left'} text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo`}>
+                  <th scope="col" className="px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo text-start">
                     {isRtl ? 'التاريخ' : 'Date'}
                   </th>
-                  <th scope="col" className={`px-6 py-3 ${isRtl ? 'text-right' : 'text-left'} text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo`}>
+                  <th scope="col" className="px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo text-start">
                     {isRtl ? 'المستخدم' : 'User'}
                   </th>
-                  <th scope="col" className={`px-6 py-3 ${isRtl ? 'text-right' : 'text-left'} text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo`}>
+                  <th scope="col" className="px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo text-start">
                     {isRtl ? 'المبلغ' : 'Amount'}
                   </th>
-                  <th scope="col" className={`px-6 py-3 ${isRtl ? 'text-right' : 'text-left'} text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo`}>
+                  <th scope="col" className="px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo text-start">
                     {isRtl ? 'طريقة الدفع' : 'Payment Method'}
                   </th>
-                  <th scope="col" className={`px-6 py-3 ${isRtl ? 'text-right' : 'text-left'} text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo`}>
+                  <th scope="col" className="px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider font-cairo text-start">
                     {isRtl ? 'الحالة' : 'Status'}
                   </th>
                 </tr>

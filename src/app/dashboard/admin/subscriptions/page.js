@@ -76,14 +76,14 @@ export default function AdminSubscriptionsPage() {
   const getStatusIcon = (status) => {
     switch (status?.toLowerCase()) {
       case 'active':
-        return <FiCheck className="inline-block mr-1" />;
+        return <FiCheck className={`inline-block ${isRtl ? 'ml-1' : 'mr-1'}`} />;
       case 'available':
       case 'pending':
-        return <FiClock className="inline-block mr-1" />;
+        return <FiClock className={`inline-block ${isRtl ? 'ml-1' : 'mr-1'}`} />;
       case 'expired':
       case 'cancelled':
       case 'canceled':
-        return <FiX className="inline-block mr-1" />;
+        return <FiX className={`inline-block ${isRtl ? 'ml-1' : 'mr-1'}`} />;
       default:
         return null;
     }
@@ -171,8 +171,8 @@ export default function AdminSubscriptionsPage() {
   
   return (
     <AdminLayout>
-      <div className="p-6">
-        <div className="flex justify-between items-center mb-6">
+      <div className="p-4 sm:p-6" dir={isRtl ? 'rtl' : 'ltr'}>
+        <div className="flex justify-between items-center mb-4 sm:mb-6">
           <div className="flex items-center">
             <FiLayers className="h-6 w-6 text-purple-600 dark:text-purple-400 mr-2" />
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white font-cairo">
@@ -202,194 +202,175 @@ export default function AdminSubscriptionsPage() {
           {isRtl ? 'عرض وإدارة جميع اشتراكات المستخدمين في النظام' : 'View and manage all user subscriptions in the system'}
         </p>
         
-        <div className="mb-6 flex flex-col md:flex-row gap-4 justify-between">
-          <div className="relative flex-1">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          {/* Search */}
+          <div className="relative flex">
             <div className={`absolute inset-y-0 ${isRtl ? 'right-0 pr-3' : 'left-0 pl-3'} flex items-center pointer-events-none`}>
               <FiSearch className="h-5 w-5 text-gray-400" />
             </div>
             <input
               type="text"
-              className={`block w-full ${isRtl ? 'pr-10 pl-3 text-right' : 'pl-10 pr-3 text-left'} py-2 border border-gray-300 rounded-md leading-5 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-purple-500 focus:border-purple-500 sm:text-sm font-cairo`}
-              placeholder={isRtl ? "البحث عن اشتراك..." : "Search subscriptions..."}
+              placeholder={isRtl ? 'بحث...' : 'Search...'}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              dir={isRtl ? "rtl" : "ltr"}
+              className={`${isRtl ? 'pr-10' : 'pl-10'} w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 font-cairo dark:bg-gray-700 dark:border-gray-600 dark:text-white`}
             />
           </div>
           
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center">
-              <FiFilter className={`h-5 w-5 text-gray-400 ${isRtl ? 'ml-2' : 'mr-2'}`} />
-              <select
-                className="block w-full py-2 px-3 border border-gray-300 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm font-cairo"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                dir={isRtl ? "rtl" : "ltr"}
-              >
-                <option value="all">{isRtl ? 'جميع الحالات' : 'All Statuses'}</option>
-                <option value="active">{isRtl ? 'نشط' : 'Active'}</option>
-                <option value="available">{isRtl ? 'متاح' : 'Available'}</option>
-                <option value="expired">{isRtl ? 'منتهي' : 'Expired'}</option>
-                <option value="cancelled">{isRtl ? 'ملغي' : 'Cancelled'}</option>
-              </select>
-            </div>
-            
-            <div className="flex items-center">
-              <select
-                className="block w-full py-2 px-3 border border-gray-300 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm font-cairo"
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                dir={isRtl ? "rtl" : "ltr"}
-              >
-                <option value="all">{isRtl ? 'جميع الأنواع' : 'All Types'}</option>
-                <option value="weekly">{isRtl ? 'أسبوعي' : 'Weekly'}</option>
-                <option value="monthly">{isRtl ? 'شهري' : 'Monthly'}</option>
-                <option value="yearly">{isRtl ? 'سنوي' : 'Yearly'}</option>
-              </select>
-            </div>
+          <div className="flex-1 flex justify-end">
+            <button
+              onClick={handleRefresh}
+              className={`flex items-center justify-center py-2 px-3 text-sm font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none ${isRtl ? 'ml-2' : 'mr-2'}`}
+              disabled={loading}
+            >
+              {loading ? (
+                <span className="flex items-center">
+                  <svg className={`animate-spin ${isRtl ? '-mr-1 ml-2' : '-ml-1 mr-2'} h-4 w-4 text-white`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  {isRtl ? 'جارٍ التحميل...' : 'Loading...'}
+                </span>
+              ) : (
+                <span className="flex items-center">
+                  <FiRefreshCw className={`${isRtl ? 'ml-2' : 'mr-2'}`} />
+                  {isRtl ? 'تحديث' : 'Refresh'}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={exportToCSV}
+              className="flex items-center justify-center py-2 px-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none"
+              disabled={filteredSubscriptions.length === 0}
+            >
+              <FiDownload className={`${isRtl ? 'ml-2' : 'mr-2'}`} />
+              {isRtl ? 'تصدير CSV' : 'Export CSV'}
+            </button>
           </div>
         </div>
         
-        {loading ? (
-          <div className="text-center py-10">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-purple-500 border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]"></div>
-            <p className="mt-2 text-gray-500 dark:text-gray-400">{isRtl ? 'جارِ التحميل...' : 'Loading...'}</p>
+        {/* Loading state */}
+        {loading && (
+          <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
           </div>
-        ) : error ? (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4 mb-6">
-            <div className="flex justify-between items-start">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <FiAlertCircle className="h-5 w-5 text-red-400" aria-hidden="true" />
-                </div>
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800 dark:text-red-200">{isRtl ? 'خطأ' : 'Error'}</h3>
-                  <div className="mt-2 text-sm text-red-700 dark:text-red-300">
-                    <p>{error}</p>
-                  </div>
+        )}
+        
+        {/* Error state */}
+        {error && !loading && (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-md p-4 my-6">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <FiAlertCircle className="h-5 w-5 text-red-400" />
+              </div>
+              <div className={`${isRtl ? 'mr-3' : 'ml-3'}`}>  
+                <h3 className="text-sm font-medium text-red-800 dark:text-red-300 font-cairo">
+                  {isRtl ? 'حدث خطأ أثناء تحميل البيانات' : 'Error loading data'}
+                </h3>
+                <div className="mt-2 text-sm text-red-700 dark:text-red-400">
+                  <p>{error}</p>
                 </div>
               </div>
-              <button
-                onClick={handleRefresh}
-                className="inline-flex items-center px-3 py-1.5 border border-red-300 dark:border-red-700 text-xs font-medium rounded-md shadow-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/50 hover:bg-red-100 dark:hover:bg-red-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                disabled={loading}
-              >
-                <FiRefreshCw className={`mr-1 ${loading ? 'animate-spin' : ''}`} />
-                {isRtl ? 'إعادة المحاولة' : 'Try Again'}
-              </button>
             </div>
           </div>
-        ) : filteredSubscriptions.length === 0 ? (
-          <div className="text-center py-10">
-            <p className="text-gray-500 dark:text-gray-400">
-              {isRtl ? 'لا توجد اشتراكات متطابقة مع معايير البحث' : 'No subscriptions matching your search criteria'}
+        )}
+        
+        {/* Empty state */}
+        {!loading && !error && filteredSubscriptions.length === 0 && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 text-center">
+            <FiX className="mx-auto h-12 w-12 text-gray-400" />
+            <h3 className="mt-2 text-lg font-medium text-gray-900 dark:text-white font-cairo">
+              {isRtl ? 'لا توجد اشتراكات' : 'No subscriptions found'}
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 font-cairo">
+              {isRtl 
+                ? 'لم يتم العثور على أي اشتراكات تطابق معايير البحث الخاصة بك.' 
+                : 'No subscriptions were found matching your search criteria.'}
             </p>
           </div>
-        ) : (
-          <div>
-            {/* Mobile Card View */}
-            <div className="block md:hidden">
-              <div className="space-y-4">
+        )}
+        
+        {/* Data display - Responsive for mobile and desktop */}
+        {!loading && !error && filteredSubscriptions.length > 0 && (
+          <div className="bg-white dark:bg-gray-800 overflow-hidden shadow-md rounded-lg">
+            {/* Mobile card view */}
+            <div className="md:hidden">
+              <div className="space-y-4 p-4">
                 {filteredSubscriptions.map((subscription, index) => (
-                  <div key={subscription.id || index} 
-                       className="bg-white dark:bg-gray-800 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 p-4 border border-gray-200 dark:border-gray-700">
-                    
-                    {/* Status Badge & Remaining Days */}
-                    <div className="flex justify-between items-center mb-3">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusBadgeClass(subscription.status)}`}>
-                        {getStatusIcon(subscription.status)}
-                        <span className="font-cairo">{subscription.status || 'Unknown'}</span>
-                      </span>
-                      <span className="text-sm font-medium text-gray-900 dark:text-white font-cairo">
-                        {getRemainingDays(subscription.end_date)}
-                      </span>
-                    </div>
-                    
-                    {/* User Info */}
-                    <div className="flex items-start mb-3 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                      <div className={`${isRtl ? 'ml-3' : 'mr-3'} mt-1`}>
-                        <div className="h-10 w-10 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center">
-                          <span className="text-sm font-semibold text-purple-600 dark:text-purple-300">
-                            {(subscription.user_name || '-').charAt(0).toUpperCase()}
-                          </span>
+                  <div key={subscription.id || index} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 shadow-sm">
+                    {/* Header: User & Status */}
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-start">
+                        <div className="h-10 w-10 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center">
+                          <FiUser className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                         </div>
-                      </div>
-                      <div className="flex-1">
-                        <p className={`text-sm font-semibold text-gray-900 dark:text-white ${isRtl ? 'font-cairo' : ''}`}>
-                          {subscription.user_name || '-'}
-                        </p>
-                        <p className={`text-xs text-gray-500 dark:text-gray-400 ${isRtl ? 'font-cairo' : ''}`}>
-                          {subscription.user_email || '-'}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {/* Subscription Details */}
-                    <div className="grid grid-cols-2 gap-3 mb-3">
-                      {/* Plan */}
-                      <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg">
-                        <div className="flex items-center mb-1">
-                          <div className="h-6 w-6 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center mr-2">
-                            <FiLayers className="h-3 w-3 text-blue-600 dark:text-blue-300" />
+                        <div className={`${isRtl ? 'mr-3' : 'ml-3'}`}>
+                          <div className="text-sm font-medium text-gray-900 dark:text-white font-cairo">
+                            {subscription.user_name || '-'}
                           </div>
-                          <span className={`text-xs font-medium text-gray-500 dark:text-gray-400 ${isRtl ? 'font-cairo' : ''}`}>
-                            {isRtl ? 'الخطة' : 'Plan'}
-                          </span>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 font-cairo">
+                            {subscription.user_email || '-'}
+                          </div>
                         </div>
-                        <p className={`text-sm font-medium text-gray-900 dark:text-white ${isRtl ? 'font-cairo text-right' : ''}`}>
+                      </div>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(subscription.status)} font-cairo`}>
+                        {getStatusIcon(subscription.status)}
+                        {subscription.status || 'Unknown'}
+                      </span>
+                    </div>
+                    
+                    {/* Plan & Type */}
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1 font-cairo">
+                          {isRtl ? 'خطة الاشتراك' : 'Plan'}
+                        </p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white font-cairo">
                           {subscription.plan_name || '-'}
                         </p>
                       </div>
-                      
-                      {/* Subscription Type */}
-                      <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg">
-                        <div className="flex items-center mb-1">
-                          <div className="h-6 w-6 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center mr-2">
-                            <FiClock className="h-3 w-3 text-purple-600 dark:text-purple-300" />
-                          </div>
-                          <span className={`text-xs font-medium text-gray-500 dark:text-gray-400 ${isRtl ? 'font-cairo' : ''}`}>
-                            {isRtl ? 'نوع الاشتراك' : 'Type'}
-                          </span>
-                        </div>
-                        <p className={`text-sm font-medium text-gray-900 dark:text-white capitalize ${isRtl ? 'font-cairo text-right' : ''}`}>
+                      <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1 font-cairo">
+                          {isRtl ? 'نوع الاشتراك' : 'Type'}
+                        </p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white font-cairo">
                           {getSubscriptionType(subscription.subscription_type)}
                         </p>
                       </div>
                     </div>
                     
-                    {/* Date Range */}
-                    <div className="grid grid-cols-2 gap-3">
-                      {/* Start Date */}
-                      <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg">
-                        <div className="flex items-center mb-1">
-                          <div className="h-6 w-6 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center mr-2">
-                            <FiClock className="h-3 w-3 text-green-600 dark:text-green-300" />
-                          </div>
-                          <span className={`text-xs font-medium text-gray-500 dark:text-gray-400 ${isRtl ? 'font-cairo' : ''}`}>
-                            {isRtl ? 'تاريخ البداية' : 'Start Date'}
-                          </span>
-                        </div>
-                        <p className={`text-sm font-medium text-gray-900 dark:text-white ${isRtl ? 'font-cairo text-right' : ''}`}>
+                    {/* Dates */}
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1 font-cairo">
+                          {isRtl ? 'تاريخ البدء' : 'Start Date'}
+                        </p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white font-cairo">
                           {subscription.start_date 
                             ? format(new Date(subscription.start_date), 'PP', { locale })
                             : '-'}
                         </p>
                       </div>
-                      
-                      {/* End Date */}
-                      <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg">
-                        <div className="flex items-center mb-1">
-                          <div className="h-6 w-6 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center mr-2">
-                            <FiClock className="h-3 w-3 text-red-600 dark:text-red-300" />
-                          </div>
-                          <span className={`text-xs font-medium text-gray-500 dark:text-gray-400 ${isRtl ? 'font-cairo' : ''}`}>
-                            {isRtl ? 'تاريخ الانتهاء' : 'End Date'}
-                          </span>
-                        </div>
-                        <p className={`text-sm font-medium text-gray-900 dark:text-white ${isRtl ? 'font-cairo text-right' : ''}`}>
+                      <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1 font-cairo">
+                          {isRtl ? 'تاريخ الانتهاء' : 'End Date'}
+                        </p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white font-cairo">
                           {subscription.end_date 
                             ? format(new Date(subscription.end_date), 'PP', { locale })
                             : '-'}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Remaining Time */}
+                    <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg">
+                      <div className="flex justify-between items-center">
+                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 font-cairo">
+                          {isRtl ? 'المتبقي:' : 'Remaining:'}
+                        </p>
+                        <p className="text-sm font-bold text-purple-700 dark:text-purple-300 font-cairo">
+                          {getRemainingDays(subscription.end_date)}
                         </p>
                       </div>
                     </div>
@@ -398,7 +379,7 @@ export default function AdminSubscriptionsPage() {
               </div>
             </div>
             
-            {/* Desktop Table View */}
+            {/* Desktop table view */}
             <div className="hidden md:block overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-800">

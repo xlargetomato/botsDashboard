@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { FiEdit2, FiTrash2, FiPlus, FiX } from 'react-icons/fi';
+import { FiEdit2, FiTrash2, FiPlus, FiX, FiSearch, FiFilter, FiChevronDown, FiAlertCircle } from 'react-icons/fi';
 import AdminLayout from '@/components/layouts/AdminLayout';
 import { useTranslation } from '@/lib/i18n/config';
 
@@ -30,6 +30,7 @@ export default function CouponsManagement() {
   }, []);
 
   const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const fetchCoupons = async () => {
     try {
@@ -252,45 +253,61 @@ export default function CouponsManagement() {
 
   return (
     <AdminLayout>
-      <div className="px-4 py-6 sm:px-0">
+      <div className="px-4 py-6 sm:px-0" dir={isRtl ? 'rtl' : 'ltr'}>
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white font-cairo">
-            {isRtl ? 'إدارة الكوبونات' : 'Coupons Management'}
-          </h1>
+          <div className="flex items-center">
+            <FiPlus className={`h-5 w-5 text-indigo-600 dark:text-indigo-400 ${isRtl ? 'ml-2' : 'mr-2'}`} />
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white font-cairo">
+              {isRtl ? 'إدارة الكوبونات' : 'Coupons Management'}
+            </h1>
+          </div>
           <button
             type="button"
             onClick={handleCreateClick}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            className="inline-flex items-center px-3 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
           >
-            <FiPlus className={`${isRtl ? 'ml-2' : 'mr-2'} -ml-1 h-5 w-5`} />
+            <FiPlus className={`${isRtl ? 'ml-1.5' : 'mr-1.5'} h-4 w-4`} />
             <span className="font-cairo">{isRtl ? 'إنشاء كوبون' : 'Create Coupon'}</span>
           </button>
         </div>
         
+        {/* Search Box */}
+        <div className="mb-6">
+          <div className="relative rounded-md shadow-sm">
+            <div className={`absolute inset-y-0 ${isRtl ? 'right-0 pr-3' : 'left-0 pl-3'} flex items-center pointer-events-none`}>
+              <FiSearch className="h-5 w-5 text-gray-400" />
+            </div>
+            <input
+              type="text"
+              className={`block w-full ${isRtl ? 'pr-10 text-right' : 'pl-10 text-left'} py-2 sm:text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-indigo-500 focus:border-indigo-500 font-cairo`}
+              placeholder={isRtl ? 'البحث عن كوبونات...' : 'Search coupons...'}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+        
         {/* Error message display */}
         {error && (
-          <div className="mb-6 bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 p-4">
+          <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4">
             <div className="flex items-start">
               <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
+                <FiAlertCircle className="h-5 w-5 text-red-400" />
               </div>
-              <div className="ml-3">
-                <p className="text-sm text-red-700 dark:text-red-200">{error}</p>
+              <div className={`${isRtl ? 'mr-3' : 'ml-3'} flex-1`}>
+                <p className="text-sm font-medium text-red-800 dark:text-red-200 font-cairo">{isRtl ? 'خطأ' : 'Error'}</p>
+                <p className="mt-1 text-sm text-red-700 dark:text-red-300">{error}</p>
               </div>
-              <div className="ml-auto pl-3">
-                <div className="-mx-1.5 -my-1.5">
-                  <button
-                    onClick={() => fetchCoupons()}
-                    className="inline-flex bg-red-50 dark:bg-red-900/30 rounded-md p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                  >
-                    <span className="sr-only">Retry</span>
-                    <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  </button>
-                </div>
+              <div className={`${isRtl ? 'mr-auto' : 'ml-auto'} ${isRtl ? 'pl-3' : 'pl-3'}`}>
+                <button
+                  onClick={() => fetchCoupons()}
+                  className="inline-flex bg-red-50 dark:bg-red-900/30 rounded-md p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  aria-label={isRtl ? 'إعادة المحاولة' : 'Retry'}
+                >
+                  <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
               </div>
             </div>
           </div>
@@ -298,7 +315,113 @@ export default function CouponsManagement() {
 
         {/* Coupons Table */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Mobile card view */}
+          <div className="md:hidden p-4">
+            {loading ? (
+              <div className="flex justify-center items-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-2 border-indigo-500 border-t-transparent"></div>
+              </div>
+            ) : coupons.length === 0 ? (
+              <div className="text-center py-8">
+                <FiX className="mx-auto h-10 w-10 text-gray-400" />
+                <p className="mt-2 text-gray-500 dark:text-gray-400 font-cairo">
+                  {isRtl ? 'لا توجد كوبونات' : 'No coupons found'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {coupons.filter(coupon => 
+                  searchTerm === '' || 
+                  coupon.code.toLowerCase().includes(searchTerm.toLowerCase())
+                ).map((coupon) => {
+                  const status = getCouponStatus(coupon);
+                  return (
+                    <div key={coupon.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow duration-200">
+                      {/* Header: Code & Status */}
+                      <div className="flex justify-between items-center mb-3">
+                        <div className="flex items-center space-x-2 rtl:space-x-reverse">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+                            {coupon.code}
+                          </span>
+                        </div>
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-${status.color}-100 text-${status.color}-800 dark:bg-${status.color}-900 dark:text-${status.color}-200`}>
+                          {isRtl ? 
+                            status.status === 'active' ? 'نشط' :
+                            status.status === 'inactive' ? 'غير نشط' :
+                            status.status === 'expired' ? 'منتهي الصلاحية' :
+                            status.status === 'upcoming' ? 'قادم' : 'مستنفد'
+                            : 
+                            status.status === 'active' ? 'Active' :
+                            status.status === 'inactive' ? 'Inactive' :
+                            status.status === 'expired' ? 'Expired' :
+                            status.status === 'upcoming' ? 'Upcoming' : 'Exhausted'
+                          }
+                        </span>
+                      </div>
+                      
+                      {/* Discount */}
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1 font-cairo">
+                            {isRtl ? 'الخصم' : 'Discount'}
+                          </p>
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">
+                            {formatDiscount(coupon)}
+                            <span className="text-xs ml-1 text-gray-500">
+                              ({coupon.discount_type === 'percentage' ? '%' : '$'})
+                            </span>
+                          </p>
+                        </div>
+                        
+                        {/* Usage */}
+                        <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1 font-cairo">
+                            {isRtl ? 'الاستخدام' : 'Usage'}
+                          </p>
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">
+                            {coupon.current_uses}{coupon.max_uses !== null && (
+                              <span> / {coupon.max_uses}</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Validity Period */}
+                      <div className="bg-gray-50 dark:bg-gray-700 p-2 rounded mb-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1 font-cairo">
+                          {isRtl ? 'فترة الصلاحية' : 'Valid Period'}
+                        </p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          {formatDate(coupon.valid_from)} - {formatDate(coupon.valid_until)}
+                        </p>
+                      </div>
+                      
+                      {/* Actions */}
+                      <div className="flex justify-end space-x-2 rtl:space-x-reverse mt-2">
+                        <button
+                          onClick={() => handleEditClick(coupon)}
+                          className="inline-flex items-center px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        >
+                          <FiEdit2 className={`h-3 w-3 ${isRtl ? 'ml-1' : 'mr-1'}`} />
+                          <span className="font-cairo">{isRtl ? 'تعديل' : 'Edit'}</span>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCoupon(coupon.id)}
+                          className="inline-flex items-center px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs font-medium text-red-600 dark:text-red-400 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                        >
+                          <FiTrash2 className={`h-3 w-3 ${isRtl ? 'ml-1' : 'mr-1'}`} />
+                          <span className="font-cairo">{isRtl ? 'حذف' : 'Delete'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          
+          {/* Desktop table view */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
@@ -376,16 +499,18 @@ export default function CouponsManagement() {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex items-center space-x-3">
+                          <div className="flex items-center space-x-3 rtl:space-x-reverse">
                             <button
                               onClick={() => handleEditClick(coupon)}
                               className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300"
+                              aria-label={isRtl ? 'تعديل' : 'Edit'}
                             >
                               <FiEdit2 className="h-4 w-4" />
                             </button>
                             <button
                               onClick={() => handleDeleteCoupon(coupon.id)}
                               className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                              aria-label={isRtl ? 'حذف' : 'Delete'}
                             >
                               <FiTrash2 className="h-4 w-4" />
                             </button>
@@ -404,7 +529,7 @@ export default function CouponsManagement() {
         {showModal && (
           <div className="fixed inset-0 overflow-y-auto z-50 flex items-center justify-center">
             <div className="fixed inset-0 bg-black bg-opacity-50 transition-opacity" onClick={handleCloseModal}></div>
-            <div className="relative bg-white dark:bg-gray-800 rounded-lg max-w-lg w-full mx-auto shadow-xl z-10">
+            <div className="relative bg-white dark:bg-gray-800 rounded-lg max-w-lg w-full mx-auto shadow-xl z-10" dir={isRtl ? 'rtl' : 'ltr'}>
               <div className="p-6">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg font-medium text-gray-900 dark:text-white font-cairo">
@@ -416,6 +541,7 @@ export default function CouponsManagement() {
                   <button
                     onClick={handleCloseModal}
                     className="text-gray-400 hover:text-gray-500 dark:text-gray-300 dark:hover:text-gray-200"
+                    aria-label={isRtl ? 'إغلاق' : 'Close'}
                   >
                     <FiX className="h-5 w-5" />
                   </button>
@@ -586,7 +712,7 @@ export default function CouponsManagement() {
                         </label>
                       </div>
                     </div>
-                    <div className="mt-5 sm:mt-6 sm:flex sm:flex-row-reverse">
+                    <div className="mt-5 sm:mt-6 sm:flex sm:flex-row-reverse rtl:flex-row">
                       <button
                         type="submit"
                         className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm"

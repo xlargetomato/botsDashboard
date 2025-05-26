@@ -14,9 +14,11 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
   const [error, setError] = useState('');
   const [ticketStatus, setTicketStatus] = useState('open'); // Default to open
   const [modalImage, setModalImage] = useState(null);
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const pollingIntervalRef = useRef(null);
+  const chatContainerRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -82,6 +84,7 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
     if (!newMessage.trim() && !file) return;
 
     try {
+      setSending(true);
       setError('');
       let fileData = null;
       
@@ -98,6 +101,7 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
         if (!uploadResponse.ok) {
           const uploadError = await uploadResponse.json();
           setError(uploadError.error || (isRtl ? 'فشل رفع الملف' : 'Failed to upload file'));
+          setSending(false);
           return;
         }
         
@@ -130,215 +134,230 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
           if (fileInputRef.current) {
             fileInputRef.current.value = '';
           }
-        } else {
-          // Fallback for backward compatibility
-          fetchMessages();
-          setNewMessage('');
-          setFile(null);
-          if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-          }
         }
       } else {
-        const error = await response.json();
-        setError(error.error || (isRtl ? 'فشل إرسال الرسالة' : 'Failed to send message'));
+        const responseError = await response.json();
+        setError(responseError.error || (isRtl ? 'فشل إرسال الرسالة' : 'Failed to send message'));
       }
     } catch (error) {
-      console.error('Error sending message:', error);
-      setError(isRtl ? 'فشل إرسال الرسالة' : 'Failed to send message');
+      setError(isRtl ? 'حدث خطأ أثناء إرسال الرسالة' : 'An error occurred while sending the message');
+    } finally {
+      setSending(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col h-[85vh] md:h-[600px] bg-white dark:bg-gray-800 rounded-lg shadow-lg w-full max-w-full md:max-w-lg mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between p-3 sm:p-4 border-b dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-800 z-10">
-        <h3 className="text-base sm:text-lg font-semibold font-cairo text-gray-900 dark:text-white">
-          {isRtl ? 'المحادثة' : 'Conversation'}
-        </h3>
-        <button
-          onClick={onClose}
-          className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-3 sm:space-y-4">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${message.is_admin ? 'justify-start' : 'justify-end'}`}
+    <div className="flex flex-col h-[90vh] md:h-[600px] bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden w-full md:max-w-4xl mx-auto border border-gray-200 dark:border-gray-700">
+      {/* Chat header */}
+      <div className="flex justify-between items-center p-3 sm:p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10 shadow-sm">
+        <div className="flex items-center">
+          <div className={`w-3 h-3 rounded-full ${ticketStatus === 'open' ? 'bg-green-500' : 'bg-gray-400'} ${isRtl ? 'ml-2' : 'mr-2'}`}></div>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 font-cairo">
+            {ticketStatus === 'open' ? (isRtl ? 'مفتوح' : 'Open') : (isRtl ? 'مغلق' : 'Closed')}
+          </span>
+        </div>
+        
+        {ticketStatus === 'open' && (
+          <button
+            onClick={async () => {
+              if (window.confirm(isRtl ? 'هل أنت متأكد أنك تريد إغلاق هذه التذكرة؟' : 'Are you sure you want to close this ticket?')) {
+                try {
+                  const response = await fetch(`/api/support/tickets/${ticketId}/close`, { method: 'POST' });
+                  if (response.ok) {
+                    setTicketStatus('closed');
+                  } else {
+                    const error = await response.json();
+                    setError(error.error || 'Failed to close ticket');
+                  }
+                } catch (error) {
+                  setError('Failed to close ticket');
+                }
+              }
+            }}
+            className="text-sm text-red-500 hover:text-red-600 font-medium px-3 py-1.5 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20 font-cairo transition-colors"
           >
-            <div
-              className={`max-w-[80%] sm:max-w-[70%] rounded-lg p-2 sm:p-3 ${
-                message.is_admin
-                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
-                  : 'bg-blue-500 text-white'
-              }`}
-            >
-              <div className="flex items-center mb-1">
-                <span className="font-semibold font-cairo text-sm">
-                  {message.is_admin 
-                    ? (isRtl ? 'الدعم الفني' : 'Support Team') 
-                    : (isRtl ? 'أنت' : 'You')}
-                </span>
-                <span className="ml-2 rtl:mr-2 rtl:ml-0 text-xs opacity-75">
-                  {new Date(message.created_at).toLocaleTimeString()}
-                </span>
-              </div>
-              {/* File attachment - image */}
-              {message.file_name && message.file_type && message.file_type.startsWith('image/') && (
-                <div className="mt-2 mb-2">
-                  {message.file_url ? (
-                    <div 
-                      className="relative w-full h-40 sm:h-64 mb-2 cursor-pointer hover:opacity-90 transition-opacity rounded-lg overflow-hidden"
-                      onClick={() => setModalImage(message.file_url)}
-                    >
-                      <Image 
-                        src={message.file_url} 
-                        alt="Attached image" 
-                        fill
-                        style={{ objectFit: 'contain' }}
-                        className="rounded-lg" 
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                        <div className="bg-black bg-opacity-50 p-2 rounded-full">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-2 bg-gray-200 dark:bg-gray-600 rounded text-sm text-center">
-                      {isRtl ? 'صورة مرفقة' : 'Image attachment'}: {message.file_name}
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {/* File attachment - other file types */}
-              {message.file_name && (!message.file_type || !message.file_type.startsWith('image/')) && (
-                <div className="mb-2">
-                  <a 
-                    href={message.file_url} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className={`flex items-center space-x-1 rtl:space-x-reverse ${
-                      message.is_admin 
-                        ? 'text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300' 
-                        : 'text-blue-200 hover:text-blue-100'
-                    }`}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                    </svg>
-                    <span>{message.file_name}</span>
-                  </a>
-                </div>
-              )}
-              
-              {/* Message content */}
-              <p className="font-cairo whitespace-pre-wrap">{message.content}</p>
-            </div>
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
+            {isRtl ? 'إغلاق التذكرة' : 'Close Ticket'}
+          </button>
+        )}
       </div>
-
+      
       {/* Error message */}
       {error && (
-        <div className="p-2 text-center text-red-500 dark:text-red-400 font-cairo text-sm">
+        <div className="mx-3 my-2 p-3 bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400 rounded-lg text-sm font-cairo">
           {error}
         </div>
       )}
-
-      {/* Input area or closed ticket message */}
-      {ticketStatus === 'closed' ? (
-        <div className="p-3 sm:p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-center sticky bottom-0">
-          <div className="flex items-center justify-center mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500 dark:text-gray-400 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
-            <span className="font-cairo text-gray-700 dark:text-gray-300 font-medium">
-              {isRtl ? 'تم إغلاق هذه التذكرة' : 'This ticket is closed'}
-            </span>
-          </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 font-cairo">
-            {isRtl ? 'لا يمكن إرسال رسائل جديدة إلى تذكرة مغلقة' : 'New messages cannot be sent to a closed ticket'}
-          </p>
+      
+      {/* Chat messages */}
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="p-2 sm:p-4 border-t dark:border-gray-700 sticky bottom-0 bg-white dark:bg-gray-800">
-          {file && (
-            <div className="mb-2 p-2 bg-gray-100 dark:bg-gray-700 rounded flex items-center justify-between">
-              <span className="text-sm text-gray-600 dark:text-gray-300 truncate font-cairo">
-                {file.name}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setFile(null);
-                  if (fileInputRef.current) {
-                    fileInputRef.current.value = '';
-                  }
-                }}
-                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        <div 
+          ref={chatContainerRef}
+          className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 bg-white dark:bg-gray-800"
+          style={{ scrollBehavior: 'smooth' }}
+        >
+          {messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center p-6">
+              <div className="bg-gray-100 dark:bg-gray-700 rounded-full p-4 mb-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-gray-400 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
-              </button>
+              </div>
+              <p className="text-gray-600 dark:text-gray-400 font-cairo text-sm sm:text-base">
+                {isRtl ? 'لا توجد رسائل بعد. ابدأ المحادثة!' : 'No messages yet. Start the conversation!'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {messages.map((message, index) => {
+                const isUserMessage = message.sender_type === 'user';
+                const showAvatar = index === 0 || messages[index - 1].sender_type !== message.sender_type;
+                const messageTime = new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                
+                return (
+                  <div key={message.id} className="mb-4">
+                    {/* Message header with name */}
+                    {showAvatar && (
+                      <div className={`text-xs ${isUserMessage ? 'text-right' : 'text-left'} mb-1 ${isRtl ? 'rtl' : 'ltr'}`}>
+                        <span className="font-medium text-gray-600 dark:text-gray-300 font-cairo">
+                          {isUserMessage ? (isRtl ? 'أنت' : 'You') : (isRtl ? 'الدعم الفني' : 'Support')}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {/* Message container */}
+                    <div className={`flex ${isUserMessage ? 'justify-end' : 'justify-start'}`}>
+                      <div 
+                        className={`max-w-[80%] ${isUserMessage 
+                          ? 'bg-blue-500 text-white' 
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-white'} p-3 rounded-lg shadow-sm`}
+                      >
+                        {/* Message content */}
+                        {message.content && (
+                          <p className="text-sm font-cairo whitespace-pre-wrap">{message.content}</p>
+                        )}
+                        
+                        {/* File attachment */}
+                        {message.file_url && (
+                          <div className="mt-2">
+                            {message.file_type.startsWith('image/') ? (
+                              <div 
+                                className="cursor-pointer hover:opacity-90 transition-opacity rounded-lg overflow-hidden"
+                                onClick={() => setModalImage(message.file_url)}
+                              >
+                                <Image 
+                                  src={message.file_url} 
+                                  alt="Attached image" 
+                                  width={200} 
+                                  height={150} 
+                                  className="rounded-lg object-cover" 
+                                  style={{ maxWidth: '100%', height: 'auto' }}
+                                />
+                              </div>
+                            ) : (
+                              <a 
+                                href={message.file_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="flex items-center p-2 bg-gray-100 dark:bg-gray-600 rounded-md text-xs sm:text-sm hover:bg-gray-200 dark:hover:bg-gray-500 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${isRtl ? 'ml-2' : 'mr-2'} text-gray-500 dark:text-gray-300`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                <span className="font-cairo truncate">{message.file_name}</span>
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* Timestamp */}
+                        <div className={`text-xs mt-1 text-right ${isUserMessage ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
+                          {messageTime}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
             </div>
           )}
-          <div className="flex items-center space-x-1 sm:space-x-2 rtl:space-x-reverse">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="p-1 sm:p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-              </svg>
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              className="hidden"
-              accept="image/*,.pdf,.doc,.docx,.txt"
-            />
-            <input
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder={isRtl ? 'اكتب رسالتك هنا...' : 'Type your message here...'}
-              className="flex-1 p-1.5 sm:p-2 text-sm sm:text-base rounded-lg border dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-cairo focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              type="submit"
-              disabled={!newMessage.trim() && !file}
-              className="p-1.5 sm:p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-            </button>
-          </div>
-        </form>
+        </div>
       )}
+      
+      {/* Message input */}
+      {!loading && ticketStatus === 'open' && (
+        <div className="p-2 sm:p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 sticky bottom-0 z-10 shadow-md">
+          <form onSubmit={handleSubmit} className="">
+            {/* File preview */}
+            {file && (
+              <div className="flex items-center p-2 mb-2 bg-gray-100 dark:bg-gray-700 rounded-md">
+                <span className="text-xs sm:text-sm truncate flex-1 font-cairo text-gray-700 dark:text-gray-300">
+                  {file.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFile(null);
+                    if (fileInputRef.current) {
+                      fileInputRef.current.value = '';
+                    }
+                  }}
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            
+            {/* Input area */}
+            <div className="flex items-center space-x-2 rtl:space-x-reverse bg-gray-100 dark:bg-gray-700 rounded-lg px-3 py-1">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+              </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                className="hidden"
+                accept="image/*,.pdf,.doc,.docx,.txt"
+              />
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder={isRtl ? 'اكتب رسالتك هنا...' : 'Type your message here...'}
+                className="flex-1 p-2 text-sm sm:text-base bg-transparent text-gray-900 dark:text-white font-cairo focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={(!newMessage.trim() && !file) || sending}
+                className="p-2 text-white rounded-md bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[40px]"
+              >
+                {sending ? (
+                  <div className="h-5 w-5 rounded-full border-2 border-t-transparent border-white animate-spin"></div>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      
       {/* Image Modal */}
       {modalImage && typeof window !== 'undefined' && createPortal(
         <div 

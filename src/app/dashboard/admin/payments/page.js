@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { FiEye, FiSearch, FiFilter, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiCreditCard, FiCalendar, FiHash } from 'react-icons/fi';
+import { FiEye, FiSearch, FiFilter, FiChevronDown, FiChevronUp, FiRefreshCw, FiUser, FiCreditCard, FiCalendar, FiHash, FiAlertCircle } from 'react-icons/fi';
 import AdminLayout from '@/components/layouts/AdminLayout';
 import { useTranslation } from '@/lib/i18n/config';
 
@@ -162,7 +162,7 @@ export default function PaymentsManagement() {
 
   return (
     <AdminLayout>
-      <div className="p-6">
+      <div className="p-6" dir={isRtl ? 'rtl' : 'ltr'}>
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold font-cairo text-gray-900 dark:text-white">
             {isRtl ? 'إدارة المدفوعات' : 'Payments Management'}
@@ -183,12 +183,12 @@ export default function PaymentsManagement() {
             {/* Search input */}
             <div className="w-full">
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none rtl:left-auto rtl:right-0 rtl:pr-3">
+                <div className={`absolute inset-y-0 ${isRtl ? 'right-0 pr-3' : 'left-0 pl-3'} flex items-center pointer-events-none`}>
                   <FiSearch className="h-5 w-5 text-gray-400" />
                 </div>
                 <input
                   type="text"
-                  className="block w-full pl-10 rtl:pl-4 rtl:pr-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg leading-5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className={`block w-full ${isRtl ? 'pr-10 text-right' : 'pl-10 text-left'} py-3 border border-gray-300 dark:border-gray-600 rounded-lg leading-5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-cairo`}
                   placeholder={isRtl ? 'البحث عن طريق الاسم أو البريد الإلكتروني أو رقم المعاملة' : 'Search by name, email, or transaction ID'}
                   value={searchTerm}
                   onChange={handleSearch}
@@ -249,9 +249,14 @@ export default function PaymentsManagement() {
         {error && (
           <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-700 dark:text-red-400">
             <div className="flex justify-between items-start">
-              <div>
-                <p className="font-medium font-cairo">{isRtl ? 'خطأ' : 'Error'}</p>
-                <p className="mt-1 text-sm">{error}</p>
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <FiAlertCircle className="h-5 w-5 text-red-400" />
+                </div>
+                <div className={`${isRtl ? 'mr-3' : 'ml-3'}`}>
+                  <p className="font-medium font-cairo">{isRtl ? 'خطأ' : 'Error'}</p>
+                  <p className="mt-1 text-sm">{error}</p>
+                </div>
               </div>
               <button
                 onClick={handleRefresh}
@@ -289,7 +294,7 @@ export default function PaymentsManagement() {
                       {/* Status Badge - Prominently displayed at the top */}
                       <div className="flex justify-between items-center mb-3">
                         <div className="flex items-center">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${isRtl ? 'font-cairo' : ''} ${
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium font-cairo ${
                             payment.status === 'completed' 
                               ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
                               : payment.status === 'pending'
@@ -659,7 +664,7 @@ export default function PaymentsManagement() {
 
       {/* Payment Details Modal */}
       {showDetailsModal && currentPayment && (
-        <div className="fixed z-10 inset-0 overflow-y-auto">
+        <div className="fixed z-10 inset-0 overflow-y-auto" dir={isRtl ? 'rtl' : 'ltr'}>
           <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
             <div className="fixed inset-0 transition-opacity" aria-hidden="true">
               <div className="absolute inset-0 bg-gray-500 dark:bg-gray-900 opacity-75"></div>
@@ -732,7 +737,7 @@ export default function PaymentsManagement() {
                   </div>
                 </div>
               </div>
-              <div className="bg-gray-50 dark:bg-gray-700 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <div className="bg-gray-50 dark:bg-gray-700 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rtl:flex-row">
                 <button
                   type="button"
                   className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-800 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
