@@ -132,7 +132,7 @@ function SubscriptionSuccessContent() {
                     {isRtl ? 'المبلغ المدفوع' : 'Amount Paid'}
                   </p>
                   <p className="font-medium text-gray-900 dark:text-white">
-                    EGP {(subscription.amount || subscription.amount_paid || 0).toFixed(2)}
+                    EGP {(Number(subscription.amount || subscription.amount_paid || 0)).toFixed(2)}
                   </p>
                 </div>
                 {(subscription.discount > 0 || subscription.discount_amount > 0) && (
@@ -141,7 +141,7 @@ function SubscriptionSuccessContent() {
                       {isRtl ? 'الخصم' : 'Discount'}
                     </p>
                     <p className="font-medium text-green-600 dark:text-green-400">
-                      EGP {(subscription.discount || subscription.discount_amount || 0).toFixed(2)}
+                      EGP {(Number(subscription.discount || subscription.discount_amount || 0)).toFixed(2)}
                     </p>
                   </div>
                 )}

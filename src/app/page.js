@@ -77,107 +77,144 @@ export default function Home() {
   return (
     <div className={`min-h-screen ${isRtl ? 'rtl' : 'ltr'} ${theme === 'dark' ? 'dark' : ''}`}>
       <main>
-      {/* Hero Section with 3D Bot Effect */}
+      {/* Hero Section with Enhanced 3D Bot Effect */}
       <section className="relative min-h-[90vh] flex items-center overflow-hidden">
-        {/* Abstract Background - Using CSS gradients instead of images */}
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-purple-700 opacity-90"></div>
-        <div className="absolute inset-0 bg-[radial-gradient(circle,_rgba(255,255,255,0.1)_1px,_transparent_1px)] bg-[length:20px_20px] opacity-20"></div>
+        {/* Enhanced Abstract Background with multiple gradients */}
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-600 via-indigo-700 to-purple-800 opacity-95"></div>
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2232%22 height=%2232%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%221%22 fill=%22%23fff%22 fill-opacity=%220.12%22/%3E%3C/svg%3E')] bg-[length:24px_24px] opacity-20"></div>
         
-        {/* Animated Circles */}
-        <div className="absolute top-20 right-20 w-32 h-32 bg-green-400 rounded-full opacity-20 animate-pulse"></div>
-        <div className="absolute bottom-20 left-40 w-40 h-40 bg-blue-300 rounded-full opacity-10 animate-pulse"></div>
+        {/* Enhanced Animated Elements */}
+        <div className="absolute top-20 right-20 rtl:right-auto rtl:left-20 w-40 h-40 bg-gradient-to-r from-green-400 to-teal-500 rounded-full opacity-20 blur-2xl animate-pulse"></div>
+        <div className="absolute bottom-20 left-40 rtl:left-auto rtl:right-40 w-52 h-52 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full opacity-15 blur-3xl animate-pulse" style={{animationDuration: '7s'}}></div>
+        <div className="absolute top-1/2 left-1/4 rtl:left-auto rtl:right-1/4 w-24 h-24 bg-gradient-to-r from-pink-400 to-red-500 rounded-full opacity-10 blur-xl animate-bounce" style={{animationDuration: '10s'}}></div>
         
-        <div className={`container relative mx-auto px-6 z-10 transition-opacity duration-1000 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
+        <div className={`container relative mx-auto px-6 z-10 transition-all duration-1000 ${isLoaded ? 'opacity-100 transform-none' : 'opacity-0 transform translate-y-8'}`}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
-            <div className="text-white">
-              <h1 className="text-5xl md:text-6xl font-bold mb-6 font-cairo leading-tight">
+            <div className={`text-white ${isRtl ? 'order-1 lg:order-1' : 'order-1 lg:order-1'} space-y-8`}>
+              <div className="inline-flex items-center px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 shadow-lg">
+                <span className="w-2 h-2 bg-green-400 rounded-full mr-2 rtl:mr-0 rtl:ml-2 animate-pulse"></span>
+                <span className="text-sm font-medium font-cairo">
+                  {isRtl ? 'متاح الآن' : 'Now Available'}
+                </span>
+              </div>
+              
+              <h1 className="text-5xl md:text-6xl font-bold font-cairo leading-tight bg-gradient-to-r from-white to-blue-200 bg-clip-text text-transparent drop-shadow-sm">
                 {isRtl 
                   ? 'بوتات واتساب ذكية لنمو أعمالك'
                   : 'Intelligent WhatsApp Bots for Business Growth'}
               </h1>
-              <p className="text-xl mb-8 text-blue-100 font-cairo max-w-lg">
+              <p className="text-xl text-blue-100 font-cairo max-w-lg leading-relaxed">
                 {isRtl
                   ? 'قم بأتمتة المحادثات وتعزيز تفاعل العملاء وزيادة المبيعات بواسطة بوتات واتساب المدعومة بالذكاء الاصطناعي.'
                   : 'Automate conversations, boost customer engagement, and increase sales with AI-powered WhatsApp bots.'}
               </p>
-              <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 rtl:space-x-reverse">
+              <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 rtl:space-x-reverse pt-4">
                 <Link href="/register" 
-                  className="py-4 px-8 rounded-full bg-white text-blue-700 text-center font-bold hover:shadow-lg transform hover:-translate-y-1 transition-all duration-300">
-                  {t('common.cta.getStarted')}
+                  className="group relative px-8 py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold text-center overflow-hidden shadow-lg hover:shadow-blue-500/25 transform hover:-translate-y-1 transition-all duration-300">
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  <span className="relative flex items-center justify-center font-cairo">
+                    {t('common.cta.getStarted')}
+                    <svg className={`w-5 h-5 ${isRtl ? 'mr-2 group-hover:-translate-x-1' : 'ml-2 group-hover:translate-x-1'} transition-transform`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={isRtl ? "M19 12H5m7 7l-7-7 7-7" : "M5 12h14m-7 7l7-7-7-7"} />
+                    </svg>
+                  </span>
                 </Link>
                 <a href="#features" 
-                  className="py-4 px-8 rounded-full bg-transparent border-2 border-white text-white text-center hover:bg-white/10 transition-colors">
+                  className="px-8 py-4 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 text-white text-center hover:bg-white/20 transition-all duration-300 font-medium font-cairo shadow-lg">
                   {t('common.cta.learnMore')}
                 </a>
               </div>
             </div>
             
-{/* 3D Phone Mockup with WhatsApp Bot - Enhanced version with Arabic support */}
-<div className="relative hidden lg:block">
-  <div className={`relative transform rotate-12 hover:rotate-6 transition-all duration-500 ${isLoaded ? 'translate-y-0' : 'translate-y-12'}`}>
-    <div className="w-80 h-[500px] bg-gray-900 rounded-[40px] p-3 shadow-2xl border-4 border-gray-800 mx-auto">
-      <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-[32px] h-full overflow-hidden relative flex flex-col">
+{/* Enhanced 3D Phone Mockup with WhatsApp Bot - Fully supports Arabic */}
+<div className="relative hidden lg:block transform-gpu">
+  <div className={`relative transform ${isRtl ? '-rotate-12 hover:-rotate-6' : 'rotate-12 hover:rotate-6'} transition-all duration-500 ${isLoaded ? 'translate-y-0' : 'translate-y-12'} hover:scale-105`}>
+    {/* Glow Effects */}
+    <div className="absolute -inset-4 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-[50px] blur-2xl"></div>
+    <div className="absolute -inset-2 bg-gradient-to-r from-cyan-400/30 to-blue-500/30 rounded-[45px] blur-xl animate-pulse"></div>
+    
+    <div className="w-80 h-[500px] bg-gradient-to-b from-gray-900 to-black rounded-[40px] p-3 shadow-2xl border border-gray-700/50 mx-auto backdrop-blur-sm">
+      <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-[32px] h-full overflow-hidden relative flex flex-col border border-gray-600/30">
         
         {/* Header */}
-        <div className="px-4 py-3 bg-green-600 flex items-center space-x-3 rtl:space-x-reverse rounded-t-[32px]">
-          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-600" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-6-3a2 2 0 11-4 0 2 2 0 014 0zm-2 4a5 5 0 00-4.546 2.916A5.986 5.986 0 005 10a6 6 0 0012 0c0-.35-.035-.691-.1-1.02A5 5 0 0010 11z" clipRule="evenodd" />
-            </svg>
+        <div className="px-4 py-3 bg-gradient-to-r from-green-600 to-green-700 flex items-center space-x-3 rtl:space-x-reverse rounded-t-[32px] shadow-lg">
+          <div className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-md">
+            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600"></div>
           </div>
-          <div className="text-white font-semibold text-lg">
-            {isRtl ? 'بوت واتساب الذكي' : 'Smart WhatsApp Bot'}
-          </div>
-        </div>
-
-        {/* Chat area */}
-        <div className="bg-[linear-gradient(rgba(229,221,213,0.9),rgba(229,221,213,0.9))] dark:bg-[linear-gradient(rgba(32,44,51,0.8),rgba(32,44,51,0.8))] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22100%22%20height%3D%22100%22%20opacity%3D%220.05%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22white%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2225%22%20fill%3D%22%23000%22%2F%3E%3C%2Fsvg%3E')] flex-1 p-4 overflow-y-auto space-y-4">
-
-          {/* User message */}
-          <div className="rounded-lg bg-green-100 p-3 ml-auto rtl:mr-auto rtl:ml-0 w-4/5 shadow">
-            <p className="text-sm text-gray-800">
-              {isRtl
-                ? 'هل يمكنني تخصيص الردود الآلية حسب نوع العملاء؟'
-                : 'Can I customize the auto-replies based on customer type?'}
-            </p>
-            <p className="text-xs text-gray-500 text-right rtl:text-left mt-1">
-              {isRtl ? 'عميل • 9:01 ص' : 'Customer • 9:01 AM'}
-            </p>
-          </div>
-
-          {/* Bot message */}
-          <div className="rounded-lg bg-white p-3 shadow mr-auto rtl:ml-auto rtl:mr-0 w-4/5">
-            <p className="text-sm text-gray-800">
-              {isRtl
-                ? 'نعم، يمكنك تخصيص الردود بالكامل، وإضافة سيناريوهات متعددة حسب طلبك، بدون الحاجة لأي خبرة تقنية.'
-                : 'Yes, you can fully customize the replies and create multiple scenarios based on your needs—no technical skills required.'}
-            </p>
-            <p className="text-xs text-gray-500 text-right rtl:text-left mt-1">
-              {isRtl ? 'البوت • 9:02 ص' : 'Bot • 9:02 AM'}
-            </p>
-          </div>
-
-          {/* Typing indicator */}
-          <div className="rounded-lg bg-white p-3 shadow w-24 mr-auto rtl:ml-auto rtl:mr-0">
-            <div className="flex space-x-1 rtl:space-x-reverse">
-              <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"></div>
-              <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-              <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+          <div className="text-white">
+            <div className="font-semibold text-lg">
+              {isRtl ? 'بوت واتساب الذكي' : 'Smart WhatsApp Bot'}
+            </div>
+            <div className="text-green-100 text-xs flex items-center">
+              <div className="w-2 h-2 bg-green-300 rounded-full mr-1 animate-pulse"></div>
+              {isRtl ? 'متصل' : 'Online'}
             </div>
           </div>
         </div>
 
-        {/* Footer info */}
-        <div className="px-4 py-2 bg-gray-800 text-gray-400 text-xs text-center rounded-b-[32px]">
-          {isRtl
-            ? 'بوتات واتساب قابلة للتخصيص بالكامل حسب مجالك — سهلة وسريعة'
-            : 'Fully customizable WhatsApp bots for your niche — fast & easy to use'}
+        {/* Chat area with enhanced design */}
+        <div className="bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 flex-1 p-4 overflow-y-auto space-y-4 relative">
+          {/* Background pattern */}
+          <div className="absolute inset-0 opacity-5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%220%200%2040%2040%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%23000%22%20fill-opacity%3D%220.1%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2220%22%20r%3D%224%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E')]">
+          </div>
+
+          {/* User message */}
+          <div className="relative">
+            <div className="rounded-2xl bg-gradient-to-r from-blue-500 to-blue-600 p-4 ml-auto rtl:mr-auto rtl:ml-0 w-4/5 shadow-lg transform hover:scale-105 transition-transform">
+              <p className="text-sm text-white font-medium">
+                {isRtl
+                  ? 'هل يمكنني تخصيص الردود الآلية؟'
+                  : 'Can I customize auto-replies?'}
+              </p>
+              <p className="text-blue-100 text-xs text-right rtl:text-left mt-2 flex items-center justify-end rtl:justify-start">
+                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                {isRtl ? '9:01 ص' : '9:01 AM'}
+              </p>
+            </div>
+          </div>
+
+          {/* Bot message */}
+          <div className="relative">
+            <div className="rounded-2xl bg-white dark:bg-gray-700 p-4 shadow-lg mr-auto rtl:ml-auto rtl:mr-0 w-4/5 border border-gray-200/50 dark:border-gray-600/50 transform hover:scale-105 transition-transform">
+              <p className="text-sm text-gray-800 dark:text-gray-200 font-medium leading-relaxed">
+                {isRtl
+                  ? 'نعم! يمكنك تخصيص كل شيء بسهولة تامة 🎯'
+                  : 'Absolutely! You can customize everything easily 🎯'}
+              </p>
+              <p className="text-gray-500 text-xs mt-2 flex items-center">
+                <span className="w-4 h-4 rounded-full bg-gradient-to-r from-green-400 to-blue-500 mr-2 inline-block"></span>
+                {isRtl ? 'البوت • 9:02 ص' : 'Bot • 9:02 AM'}
+              </p>
+            </div>
+          </div>
+
+          {/* Enhanced typing indicator */}
+          <div className="relative">
+            <div className="rounded-2xl bg-white dark:bg-gray-700 p-4 shadow-lg w-20 mr-auto rtl:ml-auto rtl:mr-0 border border-gray-200/50 dark:border-gray-600/50">
+              <div className="flex space-x-1 rtl:space-x-reverse justify-center">
+                <div className="w-2 h-2 rounded-full bg-gradient-to-r from-blue-400 to-purple-500 animate-bounce"></div>
+                <div className="w-2 h-2 rounded-full bg-gradient-to-r from-purple-400 to-pink-500 animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                <div className="w-2 h-2 rounded-full bg-gradient-to-r from-pink-400 to-red-500 animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Enhanced footer */}
+        <div className="px-4 py-3 bg-gradient-to-r from-gray-800 to-gray-900 text-gray-300 text-xs text-center rounded-b-[32px] border-t border-gray-700/50">
+          <div className="flex items-center justify-center space-x-2">
+            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+            <span>
+              {isRtl
+                ? 'يعمل بالذكاء الاصطناعي'
+                : 'Powered by AI'}
+            </span>
+          </div>
         </div>
       </div>
     </div>
-
-    {/* Glow background */}
-    <div className="absolute -z-10 top-10 left-10 right-10 bottom-10 bg-blue-500/20 rounded-[40px] blur-xl"></div>
   </div>
 </div>
 
@@ -193,42 +230,95 @@ export default function Home() {
         </div>
       </section>
 
-{/* Stats Section - Updated with Features */}
-<section className="py-12 bg-white dark:bg-gray-900">
+{/* Enhanced Stats Section with Modern UI Elements */}
+<section className="py-16 bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800">
   <div className="container mx-auto px-6">
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-      <div className="p-6 transform hover:scale-105 transition-transform">
-        <div className="text-4xl font-bold text-blue-600 dark:text-blue-400 mb-2">24/7</div>
-        <p className="text-gray-600 dark:text-gray-300 font-cairo">{isRtl ? 'متاح دائماً' : 'Always Available'}</p>
+    <div className="text-center mb-10">
+      <h3 className="text-2xl font-bold text-gray-900 dark:text-white font-cairo mb-2">
+        {isRtl ? 'مميزات متقدمة' : 'Advanced Capabilities'}
+      </h3>
+      <p className="text-gray-600 dark:text-gray-300 max-w-2xl mx-auto font-cairo">
+        {isRtl ? 'بوتات ذكية مدعومة بالذكاء الاصطناعي تعمل على مدار الساعة لتعزيز تجربة عملائك' : 'AI-powered smart bots working around the clock to enhance your customer experience'}
+      </p>
+    </div>
+    
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+      {/* 24/7 Availability */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-2 border border-gray-100 dark:border-gray-700">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-2 font-cairo">24/7</div>
+        <p className="text-gray-600 dark:text-gray-300 font-cairo">
+          {isRtl ? 'متاح دائماً للرد على العملاء' : 'Always available to respond to customers'}
+        </p>
       </div>
-      <div className="p-6 transform hover:scale-105 transition-transform">
-        <div className="text-4xl font-bold text-green-600 dark:text-green-400 mb-2">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      
+      {/* Customizable */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-2 border border-gray-100 dark:border-gray-700">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
           </svg>
         </div>
-        <p className="text-gray-600 dark:text-gray-300 font-cairo">{isRtl ? 'قابل للتخصيص' : 'Customizable'}</p>
+        <div className="text-3xl font-bold text-green-600 dark:text-green-400 mb-2 font-cairo">100%</div>
+        <p className="text-gray-600 dark:text-gray-300 font-cairo">
+          {isRtl ? 'قابل للتخصيص بالكامل' : 'Fully customizable to your needs'}
+        </p>
       </div>
-      <div className="p-6 transform hover:scale-105 transition-transform">
-        <div className="text-4xl font-bold text-purple-600 dark:text-purple-400 mb-2">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      
+      {/* Secure */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-2 border border-gray-100 dark:border-gray-700">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-purple-600 dark:text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
           </svg>
         </div>
-        <p className="text-gray-600 dark:text-gray-300 font-cairo">{isRtl ? 'آمن' : 'Secure'}</p>
+        <div className="text-3xl font-bold text-purple-600 dark:text-purple-400 mb-2 font-cairo">
+          {isRtl ? 'مؤمن' : 'Secure'}
+        </div>
+        <p className="text-gray-600 dark:text-gray-300 font-cairo">
+          {isRtl ? 'حماية كاملة للبيانات والخصوصية' : 'Complete data and privacy protection'}
+        </p>
       </div>
-      <div className="p-6 transform hover:scale-105 transition-transform">
-        <div className="text-4xl font-bold text-yellow-600 dark:text-yellow-400 mb-2">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      
+      {/* Fast */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-2 border border-gray-100 dark:border-gray-700">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-yellow-600 dark:text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
         </div>
-        <p className="text-gray-600 dark:text-gray-300 font-cairo">{isRtl ? 'سريع' : 'Fast'}</p>
+        <div className="text-3xl font-bold text-yellow-600 dark:text-yellow-400 mb-2 font-cairo">
+          <span className="inline-flex items-center">
+            <span className="mr-1 rtl:mr-0 rtl:ml-1">5x</span>
+            {isRtl ? 'أسرع' : 'Faster'}
+          </span>
+        </div>
+        <p className="text-gray-600 dark:text-gray-300 font-cairo">
+          {isRtl ? 'استجابة فورية وسريعة للعملاء' : 'Instant and rapid response to customers'}
+        </p>
+      </div>
+    </div>
+    
+    {/* Divider with subtle design */}
+    <div className="relative mt-16 mb-8">
+      <div className="absolute inset-0 flex items-center">
+        <div className="w-full border-t border-gray-200 dark:border-gray-700"></div>
+      </div>
+      <div className="relative flex justify-center">
+        <div className="bg-gray-50 dark:bg-gray-800 px-4 text-sm text-gray-500 dark:text-gray-400 font-cairo">
+          {isRtl ? 'الأفضل في السوق' : 'Best in the market'}
+        </div>
       </div>
     </div>
   </div>
 </section>
 
+    
+      
       {/* Feature Cards Section - Enhanced with animations */}
 <section id="features" className="py-20 bg-gray-50 dark:bg-gray-800">
   <div className="container mx-auto px-6">
@@ -367,7 +457,19 @@ export default function Home() {
     </div>
   </div>
 </section>
-
+  {/* Stylish Divider Section */}
+  <section className=" bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-800 overflow-hidden">
+        <div className="container mx-auto px-6">
+          <div className="relative">
+            
+            <div className="relative flex flex-col items-center justify-center space-y-6">
+              <div className="h-0.5 w-full max-w-3xl bg-gradient-to-r from-transparent via-gray-300 dark:via-gray-600 to-transparent"></div>
+              
+              
+            </div>
+          </div>
+        </div>
+      </section>
       {/* Subscription Plans Section */}
       <section className="py-20 bg-gray-50 dark:bg-gray-900">
         <div className="container mx-auto px-6">
@@ -466,10 +568,24 @@ export default function Home() {
                 const isPopular = index === 1; // Mark the second plan as popular
                 
                 return (
-                  <div key={plan.id} className={`relative bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border-t-4 ${isPopular ? 'border-t-blue-500' : 'border-t-transparent'} transition-all transform hover:-translate-y-1 hover:shadow-xl flex flex-col h-full`}>
+                  <div key={plan.id} className={`relative bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border-t-4 ${isPopular ? 'border-t-blue-500' : 'border-t-transparent'} transition-all transform hover:-translate-y-1 hover:shadow-xl flex flex-col h-full mt-5 overflow-visible`}>
                     {isPopular && (
-                      <div className="absolute -top-3 left-0 right-0 mx-auto w-max px-4 py-1 bg-blue-600 text-white text-sm font-medium rounded-full shadow-md font-cairo">
-                        {isRtl ? 'الأكثر شعبية' : 'Most Popular'}
+                      <div className="absolute -top-4 left-0 right-0 mx-auto w-max px-5 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-medium rounded-full shadow-xl font-cairo transform transition-transform hover:scale-105 z-50 border-2 border-blue-400/40">
+                        {isRtl ? (
+                          <div className="flex items-center gap-1.5 flex-row-reverse">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-yellow-300" viewBox="0 0 20 20" fill="currentColor">
+                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                            </svg>
+                            <span className="inline-block text-center font-bold">الأكثر شعبية</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-yellow-300" viewBox="0 0 20 20" fill="currentColor">
+                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                            </svg>
+                            <span className="inline-block text-center font-bold">Most Popular</span>
+                          </div>
+                        )}
                       </div>
                     )}
                     <div className={`flex ${isRtl ? 'flex-row-reverse' : ''} justify-between items-start mb-4`}>
@@ -487,7 +603,11 @@ export default function Home() {
                     
                     <div className="mb-6">
                       {isRtl ? (
-                        <div className="flex flex-row-reverse items-center justify-center">
+                        <div className="flex items-center justify-center bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-900 py-4 px-3 rounded-lg shadow-inner border border-gray-100 dark:border-gray-700">
+                          <span className="text-4xl font-bold font-cairo bg-gradient-to-r from-blue-600 to-blue-800 dark:from-blue-400 dark:to-blue-600 bg-clip-text text-transparent">
+                            {price.toFixed(2)}
+                          </span>
+                          <CurrencySymbol className="mx-1 text-2xl font-bold text-blue-600 dark:text-blue-400" />
                           <span className="text-lg font-cairo text-gray-500 dark:text-gray-400 mr-1">
                             /{subscriptionType === 'weekly' 
                               ? 'أسبوع'
@@ -495,18 +615,14 @@ export default function Home() {
                                 ? 'شهر'
                                 : 'سنة'}
                           </span>
-                          <span className="text-4xl font-bold font-cairo text-gray-900 dark:text-white">
-                            {price.toFixed(2)}
-                          </span>
-                          <CurrencySymbol className="mr-1 text-2xl font-bold text-gray-900 dark:text-white" />
                         </div>
                       ) : (
-                        <div className="flex items-center justify-center">
-                          <CurrencySymbol className="mx-1 text-2xl font-bold text-gray-900 dark:text-white" />
-                          <span className="text-4xl font-bold font-cairo text-gray-900 dark:text-white">
+                        <div className="flex items-center justify-center bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-900 py-4 px-3 rounded-lg shadow-inner border border-gray-100 dark:border-gray-700">
+                          <CurrencySymbol className="mx-1 text-2xl font-bold text-blue-600 dark:text-blue-400" />
+                          <span className="text-4xl font-bold font-cairo bg-gradient-to-r from-blue-600 to-blue-800 dark:from-blue-400 dark:to-blue-600 bg-clip-text text-transparent">
                             {price.toFixed(2)}
                           </span>
-                          <span className="text-lg font-cairo text-gray-500 dark:text-gray-400 ms-1">
+                          <span className="text-lg font-cairo text-gray-500 dark:text-gray-400 ml-1">
                             /{subscriptionType === 'weekly' 
                               ? 'week'
                               : subscriptionType === 'monthly'
@@ -524,23 +640,32 @@ export default function Home() {
                     </div>
                     
                     <div className="mb-6 flex-grow">
-                      <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-md mb-4">
-                        <p className="text-gray-600 dark:text-gray-300 font-cairo">
+                      <div className="p-4 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-700 rounded-lg mb-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-all duration-300 hover:shadow-md">
+                        <p className="text-gray-600 dark:text-gray-300 font-cairo leading-relaxed">
                           {plan.description}
                         </p>
                       </div>
                       
-                      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                        <h4 className="font-bold text-gray-900 dark:text-white mb-3 font-cairo">
-                          {isRtl ? 'المميزات' : 'Features'}
-                        </h4>
-                        <ul className="space-y-3">
+                      <div className="border-t border-gray-200 dark:border-gray-700 pt-5">
+                        <div className="flex items-center mb-4">
+                          <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mr-3 rtl:mr-0 rtl:ml-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-600 dark:text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                          <h4 className="font-bold text-gray-900 dark:text-white font-cairo text-lg">
+                            {isRtl ? 'المميزات' : 'Features'}
+                          </h4>
+                        </div>
+                        <ul className="space-y-3.5">
                           {features.map((feature, index) => (
-                            <li key={index} className="flex items-start">
-                              <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-green-500 ${isRtl ? 'ms-2' : 'me-2'} mt-0.5 flex-shrink-0`} viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                              </svg>
-                              <span className="text-gray-600 dark:text-gray-300 font-cairo">
+                            <li key={index} className="flex items-start group transition-all duration-300 hover:translate-x-1 rtl:hover:-translate-x-1">
+                              <div className="w-5 h-5 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mr-3 rtl:mr-0 rtl:ml-3 flex-shrink-0 mt-0.5 group-hover:bg-green-500 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-green-600 dark:text-green-400 group-hover:text-white transition-colors" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                              </div>
+                              <span className="text-gray-700 dark:text-gray-300 font-cairo group-hover:text-gray-900 dark:group-hover:text-white transition-colors">  
                                 {isRtl ? (feature.ar || feature.en) : (feature.en || feature.ar)}
                               </span>
                             </li>
@@ -549,12 +674,18 @@ export default function Home() {
                       </div>
                     </div>
                     
-                    <div className="mt-auto pt-4">
+                    <div className="mt-auto pt-5">
                       <button
                         onClick={() => handleSelectPlan(plan)}
-                        className={`w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md shadow-sm font-cairo transition-colors flex items-center justify-center ${isRtl ? 'flex-row-reverse' : ''}`}
+                        className={`group relative w-full px-6 py-3.5 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium rounded-lg shadow-md hover:shadow-lg transform hover:-translate-y-0.5 font-cairo transition-all duration-300 overflow-hidden ${isRtl ? 'flex-row-reverse' : ''} flex items-center justify-center`}
                       >
-                        {isRtl ? 'اختر الخطة' : 'Select Plan'}
+                        <span className="absolute inset-0 bg-gradient-to-r from-blue-400/20 to-indigo-400/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"></span>
+                        <span className="relative flex items-center">
+                          {isRtl ? 'اختر الخطة' : 'Select Plan'}
+                          <svg className={`w-4 h-4 ${isRtl ? 'mr-2 group-hover:-translate-x-1' : 'ml-2 group-hover:translate-x-1'} transition-transform duration-300`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={isRtl ? "M19 12H5m7 7l-7-7 7-7" : "M5 12h14m-7 7l7-7-7-7"} />
+                          </svg>
+                        </span>
                       </button>
                     </div>
                   </div>
@@ -565,25 +696,49 @@ export default function Home() {
         </div>
       </section>
       
-      {/* CTA Section - Improved with animated gradient */}
-      <section className="relative py-20 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-blue-700 to-blue-800 animate-gradient-shift"></div>
-        <div className="absolute inset-0 bg-[radial-gradient(circle,_rgba(255,255,255,0.1)_1px,_transparent_1px)] bg-[length:20px_20px] opacity-20"></div>
+      {/* Enhanced CTA Section with 3D effects and animations */}
+      <section className="relative py-24 overflow-hidden">
+        {/* Enhanced animated background */}
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-indigo-700 to-purple-800 animate-gradient-shift"></div>
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%221%22%20fill%3D%22%23fff%22%20fill-opacity%3D%220.15%22%2F%3E%3C%2Fsvg%3E')] bg-[length:24px_24px] opacity-20"></div>
+        
+        {/* Decorative elements */}
+        <div className="absolute top-20 right-20 rtl:right-auto rtl:left-20 w-64 h-64 rounded-full bg-gradient-to-r from-cyan-400/30 to-blue-500/30 blur-3xl animate-pulse"></div>
+        <div className="absolute bottom-10 left-10 rtl:left-auto rtl:right-10 w-40 h-40 rounded-full bg-gradient-to-r from-purple-500/20 to-pink-500/20 blur-2xl animate-pulse" style={{animationDuration: '8s'}}></div>
         
         <div className="container relative mx-auto px-6 z-10">
-          <div className="max-w-3xl mx-auto text-center">
-            <h2 className="text-4xl font-bold mb-6 text-white font-cairo">
+          <div className="max-w-3xl mx-auto text-center transform transition-all duration-700 hover:scale-[1.02]">
+            {/* Badge */}
+            <div className="inline-flex items-center px-4 py-2 mb-8 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 shadow-lg">
+              <span className="w-2 h-2 bg-green-400 rounded-full mr-2 rtl:mr-0 rtl:ml-2 animate-pulse"></span>
+              <span className="text-sm font-medium text-white font-cairo">
+                {isRtl ? 'عرض محدود' : 'Limited Time Offer'}
+              </span>
+            </div>
+            
+            <h2 className="text-4xl md:text-5xl font-bold mb-6 text-white font-cairo drop-shadow-md">
               {isRtl ? 'جاهز لتنمية أعمالك مع بوتات واتساب؟' : 'Ready to Grow Your Business with WhatsApp Bots?'}
             </h2>
-            <p className="text-xl mb-10 text-blue-100 font-cairo">
+            <p className="text-xl mb-10 text-blue-100 font-cairo max-w-2xl mx-auto leading-relaxed">
               {isRtl
                 ? 'ابدأ اليوم وشاهد كيف يمكن لبوتات واتساب المتقدمة أن تحول تفاعلات عملائك وتعزز مبيعاتك.'
                 : 'Start today and see how advanced WhatsApp bots can transform your customer interactions and boost your sales.'}
             </p>
-            <Link href="/register" 
-              className="py-4 px-10 rounded-full bg-white text-blue-700 font-bold hover:shadow-lg transform hover:-translate-y-1 transition-all duration-300 inline-block">
-              {isRtl ? 'ابدأ مجانًا' : 'Start for Free'}
-            </Link>
+            <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-5 rtl:space-x-reverse">
+              <Link href="/register" 
+                className="group relative overflow-hidden py-4 px-10 rounded-xl bg-white font-bold shadow-xl hover:shadow-blue-500/25 transform hover:-translate-y-1 transition-all duration-300 inline-flex items-center justify-center">
+                <span className="absolute inset-0 bg-gradient-to-r from-blue-50 to-blue-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
+                <span className="relative flex items-center text-blue-700 font-cairo">
+                  {isRtl ? 'ابدأ مجانًا' : 'Start for Free'}
+                  <svg className={`w-5 h-5 ${isRtl ? 'mr-2 group-hover:-translate-x-1' : 'ml-2 group-hover:translate-x-1'} transition-transform`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={isRtl ? "M19 12H5m7 7l-7-7 7-7" : "M5 12h14m-7 7l7-7-7-7"} />
+                  </svg>
+                </span>
+              </Link>
+              <a href="#plans" className="text-white hover:text-blue-100 underline decoration-2 underline-offset-4 font-medium transition-colors duration-300 font-cairo">
+                {isRtl ? 'عرض الخطط' : 'View Plans'}
+              </a>
+            </div>
           </div>
         </div>
       </section>
