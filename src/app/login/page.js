@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslation } from '@/lib/i18n/config';
@@ -9,7 +9,7 @@ import { useAuth } from '@/lib/auth/AuthContext';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 
-export default function Login() {
+function LoginForm() {
   const { t, i18n } = useTranslation();
   const { theme } = useTheme();
   const { login, user, loading: authLoading } = useAuth();
@@ -249,5 +249,16 @@ export default function Login() {
       </main>
       
     </div>
+  );
+}
+
+// Wrap the component that uses useSearchParams in a Suspense boundary
+export default function Login() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+    </div>}>
+      <LoginForm />
+    </Suspense>
   );
 }

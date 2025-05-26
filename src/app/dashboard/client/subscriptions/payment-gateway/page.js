@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslation } from '@/lib/i18n/config';
 import Image from 'next/image';
 
-export default function PaymentGatewayPage() {
+function PaymentGatewayContent() {
   const { t, i18n } = useTranslation();
   const isRtl = i18n.language === 'ar';
   const router = useRouter();
@@ -192,7 +192,7 @@ export default function PaymentGatewayPage() {
   }
   
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="py-10 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto">
       <div className="max-w-md mx-auto">
         {/* Payment Gateway Header */}
         <div className="text-center mb-8">
@@ -385,5 +385,16 @@ export default function PaymentGatewayPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Wrap the component that uses useSearchParams in a Suspense boundary
+export default function PaymentGatewayPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">
+      <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+    </div>}>
+      <PaymentGatewayContent />
+    </Suspense>
   );
 }

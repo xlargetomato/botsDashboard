@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslation } from '@/lib/i18n/config';
 import MainLayout from '@/components/layouts/MainLayout';
 import DashboardSidebar from '@/components/dashboard/DashboardSidebar';
 import Link from 'next/link';
 
-export default function SubscriptionSuccessPage() {
+function SubscriptionSuccessContent() {
   const { t, i18n } = useTranslation();
   const isRtl = i18n.language === 'ar';
   const router = useRouter();
@@ -182,5 +182,16 @@ export default function SubscriptionSuccessPage() {
         </div>
       </div>
     </MainLayout>
+  );
+}
+
+// Wrap the component that uses useSearchParams in a Suspense boundary
+export default function SubscriptionSuccessPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">
+      <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+    </div>}>
+      <SubscriptionSuccessContent />
+    </Suspense>
   );
 }

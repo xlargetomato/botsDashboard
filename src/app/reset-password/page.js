@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useTranslation } from '@/lib/i18n/config';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 
-export default function ResetPassword() {
+function ResetPasswordForm() {
   const { t, i18n } = useTranslation();
   const { theme } = useTheme();
   const isRtl = i18n.language === 'ar';
@@ -252,5 +253,16 @@ export default function ResetPassword() {
         </div>
       </main>
     </div>
+  );
+}
+
+// Wrap the component that uses useSearchParams in a Suspense boundary
+export default function ResetPassword() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+    </div>}>
+      <ResetPasswordForm />
+    </Suspense>
   );
 }
