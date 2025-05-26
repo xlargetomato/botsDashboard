@@ -32,18 +32,60 @@ export async function POST(request) {
       );
     }
     
-    // Get subscription details from database
-    const subscriptionResults = await executeQuery(`
-      SELECT s.*, p.name as plan_name, p.description as plan_description
-      FROM subscriptions s
-      LEFT JOIN subscription_plans p ON s.plan_id = p.id
-      WHERE s.id = ? AND s.user_id = ?
-    `, [subscriptionId, userId]);
+    // Log the request for debugging
+    console.log('Processing Paylink invoice request:', { subscriptionId, userId });
     
-    if (!subscriptionResults.length) {
+    // Get subscription details from database
+    let subscriptionResults;
+    try {
+      subscriptionResults = await executeQuery(`
+        SELECT s.*, p.name as plan_name, p.description as plan_description
+        FROM subscriptions s
+        LEFT JOIN subscription_plans p ON s.plan_id = p.id
+        WHERE s.id = ?
+      `, [subscriptionId]);
+      
+      console.log('Subscription query results:', subscriptionResults);
+      
+      if (!subscriptionResults.length) {
+        // Try again with just the ID to check if subscription exists at all
+        const checkSubscription = await executeQuery('SELECT id, user_id FROM subscriptions WHERE id = ?', [subscriptionId]);
+        console.log('Subscription existence check:', checkSubscription);
+        
+        if (checkSubscription.length) {
+          console.log('Subscription exists but belongs to different user:', { 
+            foundUserId: checkSubscription[0].user_id,
+            requestUserId: userId 
+          });
+          return NextResponse.json(
+            { error: 'Subscription belongs to a different user' },
+            { status: 403 }
+          );
+        } else {
+          console.log('Subscription not found with ID:', subscriptionId);
+          return NextResponse.json(
+            { error: 'Subscription not found with the provided ID' },
+            { status: 404 }
+          );
+        }
+      }
+      
+      // Since we found the subscription, let's check if it belongs to the user
+      if (subscriptionResults[0].user_id !== userId) {
+        console.log('User ID mismatch:', { 
+          subscriptionUserId: subscriptionResults[0].user_id, 
+          requestUserId: userId 
+        });
+        return NextResponse.json(
+          { error: 'Subscription does not belong to authenticated user' },
+          { status: 403 }
+        );
+      }
+    } catch (dbError) {
+      console.error('Database error when fetching subscription:', dbError);
       return NextResponse.json(
-        { error: 'Subscription not found or does not belong to authenticated user' },
-        { status: 404 }
+        { error: 'Database error when fetching subscription', details: dbError.message },
+        { status: 500 }
       );
     }
     

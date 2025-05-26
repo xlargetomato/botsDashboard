@@ -274,7 +274,7 @@ export async function POST(request) {
           amountPaid, 
           startDate, 
           expireDate, 
-          'available', 
+          'pending', 
           paymentMethod, 
           transactionId || null, 
           promoCode || null, 
@@ -282,7 +282,7 @@ export async function POST(request) {
         ]
       );
       
-      // Record payment transaction
+      // Record payment transaction as pending until payment is confirmed
       const transactionIdToUse = transactionId || uuidv4();
       await executeQuery(
         `INSERT INTO payment_transactions 
@@ -295,7 +295,7 @@ export async function POST(request) {
           amountPaid - discountAmount, 
           paymentMethod, 
           transactionIdToUse, 
-          'completed'
+          'pending'
         ]
       );
     } catch (dbError) {
