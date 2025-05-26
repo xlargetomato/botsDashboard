@@ -3,12 +3,18 @@ import mysql from 'mysql2/promise';
 // Database connection configuration
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || process.env.NEXT_PUBLIC_PROJECT_NAME.toLowerCase(),
+  database: process.env.DB_NAME || process.env.NEXT_PUBLIC_PROJECT_NAME?.toLowerCase() || 'defaultdb',
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  connectTimeout: 60000, // 60 seconds timeout
+  // SSL configuration for Aiven MySQL
+  ssl: process.env.DB_SSL === 'REQUIRED' ? {
+    rejectUnauthorized: true
+  } : false
 };
 
 // Create a connection pool
