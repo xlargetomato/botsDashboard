@@ -136,11 +136,7 @@ export default function LoginForm() {
                 </p>
               </div>
               
-              {/* Theme and Language Switchers */}
-              <div className="flex justify-between mb-6">
-                <ThemeSwitcher />
-                <LanguageSwitcher />
-              </div>
+
               
               {/* Login Error Message */}
               {loginMessage && (

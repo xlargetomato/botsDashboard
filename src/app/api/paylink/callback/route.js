@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db/config';
 import { getInvoice } from '@/lib/paylink/api';
-import { sendSubscriptionEmail } from '@/lib/email/mailer'; // Import email service if available
+import { sendSubscriptionEmail } from '@/lib/email/emailService';
 
 /**
  * POST handler for Paylink.sa payment callback
@@ -55,24 +55,24 @@ export async function POST(request) {
         // Begin transaction for updating related records
         await executeQuery('START TRANSACTION');
         
-        // Update the payment transaction status
+        // Update the payment transaction status with Paylink response details
         await executeQuery(`
           UPDATE payment_transactions 
           SET status = ?, payment_gateway_response = ?, updated_at = NOW() 
           WHERE paylink_invoice_id = ?
         `, [paymentStatus, JSON.stringify(invoiceDetails), invoiceId]);
         
-        // Get subscription details
+        // Get subscription details with user information for email notification
         const subscriptionResults = await executeQuery(`
           SELECT s.*, p.name as plan_name, p.description as plan_description, 
-                 u.email as user_email, u.name as user_name
+                 u.email as user_email, u.name as user_name, CONCAT(u.first_name, ' ', u.last_name) as full_name
           FROM subscriptions s
           LEFT JOIN subscription_plans p ON s.plan_id = p.id
           LEFT JOIN users u ON s.user_id = u.id
           WHERE s.id = ?
         `, [subscriptionId]);
         
-        if (subscriptionResults.length === 0) {
+        if (!subscriptionResults.length) {
           throw new Error(`Subscription not found with ID: ${subscriptionId}`);
         }
         
@@ -85,7 +85,7 @@ export async function POST(request) {
           WHERE id = ?
         `, [subscriptionId]);
         
-        // Add a subscription history record
+        // Add subscription history record
         await executeQuery(`
           INSERT INTO subscription_history 
           (id, subscription_id, user_id, action, details, created_at)
@@ -108,22 +108,27 @@ export async function POST(request) {
         // Log payment details
         console.log(`Payment successful for invoice ${invoiceId}, subscription ${subscriptionId} has been activated`);
         
-        // Send confirmation email to user (if email service is configured)
+        // Send confirmation email to user
         try {
-          if (typeof sendSubscriptionEmail === 'function' && subscription.user_email) {
+          const userName = subscription.user_name || subscription.full_name || 'Valued Customer';
+          
+          if (subscription.user_email) {
             await sendSubscriptionEmail({
               type: 'payment_confirmation',
               email: subscription.user_email,
-              name: subscription.user_name || 'Valued Customer',
+              name: userName,
               subscription: {
                 id: subscription.id,
-                planName: subscription.plan_name,
+                planName: subscription.plan_name || 'Subscription Plan',
                 amount: transaction.amount,
                 startDate: subscription.started_date,
                 expiryDate: subscription.expired_date,
                 transactionId: transaction.transaction_id
               }
             });
+            console.log(`Payment confirmation email sent to ${subscription.user_email}`);
+          } else {
+            console.log('User email not found, skipping payment confirmation email');
           }
         } catch (emailError) {
           console.error('Failed to send confirmation email:', emailError);
@@ -208,6 +213,35 @@ export async function POST(request) {
               reason: invoiceDetails.status || detailedStatus
             })
           ]);
+          
+          // Get user email to notify about payment failure
+          const userResults = await executeQuery(`
+            SELECT u.email, u.name, CONCAT(u.first_name, ' ', u.last_name) as full_name
+            FROM users u
+            JOIN subscriptions s ON u.id = s.user_id
+            WHERE s.id = ?
+          `, [subscriptionId]);
+          
+          if (userResults.length > 0 && userResults[0].email) {
+            try {
+              const userName = userResults[0].name || userResults[0].full_name || 'Valued Customer';
+              
+              // Send payment failure notification
+              await sendSubscriptionEmail({
+                type: 'payment_failed',
+                email: userResults[0].email,
+                name: userName,
+                subscription: {
+                  id: subscriptionId,
+                  status: detailedStatus,
+                  reason: invoiceDetails.message || 'Payment was not completed successfully'
+                }
+              });
+            } catch (emailError) {
+              console.error('Failed to send payment failure email:', emailError);
+              // Non-critical error, continue with the process
+            }
+          }
           
           console.log(`Payment ${detailedStatus} for invoice ${invoiceId}, subscription ${subscriptionId}`);
         } else {

@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth/AuthContext';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { Menu, X, LogOut } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 
 export default function Navbar({ isStatic = false }) {
   const { t, i18n } = useTranslation();
@@ -16,6 +17,9 @@ export default function Navbar({ isStatic = false }) {
   const isRtl = i18n.language === 'ar';
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const pathname = usePathname();
+  
+  const isAuthPage = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password' || pathname === '/reset-password';
 
   const iconColor = theme === 'dark' ? 'white' : 'black'
 
@@ -31,7 +35,7 @@ export default function Navbar({ isStatic = false }) {
   return (
     <header 
       className={`${isStatic ? 'relative text-black ' : 'fixed top-0 left-0 right-0 '} z-50 transition-all duration-300 ${isRtl ? 'rtl' : 'ltr'} ${
-        isScrolled || mobileMenuOpen
+        isScrolled || mobileMenuOpen || isAuthPage
           ? 'py-2 backdrop-blur-md bg-white/90 text-black dark:bg-gray-900/90 shadow-md' 
           : `py-4 bg-transparent ${!isStatic ? 'text-white' : 'text-black'} dark:text-white`
       }`}
@@ -47,21 +51,21 @@ export default function Navbar({ isStatic = false }) {
               </div>
               <h1 className="text-2xl font-bold font-cairo">
                 <span className="bg-clip-text text-transparent bg-gradient-to-r from-green-500 to-blue-600 dark:from-green-400 dark:to-blue-500">Pro</span>
-                <span className={`${isScrolled || mobileMenuOpen ? 'text-gray-900 dark:text-white' : (isStatic ? 'text-gray-900 dark:text-white' : 'text-white dark:text-white')}`}>ject</span>
+                <span className={`${isScrolled || mobileMenuOpen || isAuthPage ? 'text-gray-900 dark:text-white' : (isStatic ? 'text-gray-900 dark:text-white' : 'text-white dark:text-white')}`}>ject</span>
               </h1>
             </div>
           </Link>
           
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-8 rtl:space-x-reverse">
-            <Link href="/#features" className={`font-cairo text-base font-medium transition-all ${isScrolled || mobileMenuOpen ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : (isStatic ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : 'text-white hover:text-green-300 dark:text-gray-100 dark:hover:text-green-400')}`}>
+            <Link href="/#features" className={`font-cairo text-base font-medium transition-all ${isScrolled || mobileMenuOpen || isAuthPage ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : (isStatic ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : 'text-white hover:text-green-300 dark:text-gray-100 dark:hover:text-green-400')}`}>
               {t('common.navigation.features')}
             </Link>
 
-            <Link href="/#pricing" className={`font-cairo text-base font-medium transition-all ${isScrolled || mobileMenuOpen ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : (isStatic ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : 'text-white hover:text-green-300 dark:text-gray-100 dark:hover:text-green-400')}`}>
+            <Link href="/#pricing" className={`font-cairo text-base font-medium transition-all ${isScrolled || mobileMenuOpen || isAuthPage ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : (isStatic ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : 'text-white hover:text-green-300 dark:text-gray-100 dark:hover:text-green-400')}`}>
               {t('common.navigation.pricing')}
             </Link>
-            <Link href="/#pricing" className={`font-cairo text-base font-medium transition-all ${isScrolled || mobileMenuOpen ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : (isStatic ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : 'text-white hover:text-green-300 dark:text-gray-100 dark:hover:text-green-400')}`}>
+            <Link href="/#pricing" className={`font-cairo text-base font-medium transition-all ${isScrolled || mobileMenuOpen || isAuthPage ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : (isStatic ? 'text-gray-800 hover:text-green-500 dark:text-gray-100 dark:hover:text-green-400' : 'text-white hover:text-green-300 dark:text-gray-100 dark:hover:text-green-400')}`}>
               {t('common.navigation.docs')}
             </Link>
           </nav>
@@ -92,7 +96,7 @@ export default function Navbar({ isStatic = false }) {
                   </>
                 ) : (
                   <>
-                    <Link href="/login" className={`px-4 py-2 transition-colors font-cairo font-medium ${isScrolled || mobileMenuOpen ? 'text-gray-700 hover:text-green-600 dark:text-gray-200 dark:hover:text-green-400' : (isStatic ? 'text-gray-700 hover:text-green-600 dark:text-gray-200 dark:hover:text-green-400' : 'text-white hover:text-green-300 dark:text-gray-200 dark:hover:text-green-400')}`}>
+                    <Link href="/login" className={`px-4 py-2 transition-colors font-cairo font-medium ${isScrolled || mobileMenuOpen || isAuthPage ? 'text-gray-700 hover:text-green-600 dark:text-gray-200 dark:hover:text-green-400' : (isStatic ? 'text-gray-700 hover:text-green-600 dark:text-gray-200 dark:hover:text-green-400' : 'text-white hover:text-green-300 dark:text-gray-200 dark:hover:text-green-400')}`}>
                       {t('common.auth.login')}
                     </Link>
                     <Link 
@@ -111,7 +115,7 @@ export default function Navbar({ isStatic = false }) {
             
             {/* Mobile Menu Button */}
             <button 
-              className={`md:hidden p-2 rounded-md ${isScrolled || mobileMenuOpen ? 'text-gray-800 dark:text-gray-300' : 'text-white dark:text-gray-300'} hover:bg-gray-500/20 dark:hover:bg-gray-800/50 transition-colors`}
+              className={`md:hidden p-2 rounded-md ${isScrolled || mobileMenuOpen || isAuthPage ? 'text-gray-800 dark:text-gray-300' : 'text-white dark:text-gray-300'} hover:bg-gray-500/20 dark:hover:bg-gray-800/50 transition-colors`}
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
       {mobileMenuOpen ? ( <X size={24} color={iconColor} /> ) : ( <Menu size={24} color={iconColor} />)}
