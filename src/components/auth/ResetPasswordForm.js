@@ -173,9 +173,9 @@ export default function ResetPasswordForm() {
                       ${errors.password 
                         ? 'border-red-500 focus:ring-red-200 dark:focus:ring-red-900' 
                         : 'border-gray-300 dark:border-gray-600 focus:ring-blue-200 dark:focus:ring-blue-900'}
-                      dark:bg-gray-700 dark:text-white`}
+                      dark:bg-gray-700 dark:text-white text-start ${isRtl ? 'text-right' : 'text-left'}`}
                     placeholder={isRtl ? 'أدخل كلمة المرور الجديدة' : 'Enter new password'}
-                    dir="ltr"
+                    dir="auto"
                   />
                   {errors.password && (
                     <p className="mt-1 text-sm text-red-600 dark:text-red-400 font-cairo">{errors.password}</p>
@@ -198,9 +198,9 @@ export default function ResetPasswordForm() {
                       ${errors.confirmPassword 
                         ? 'border-red-500 focus:ring-red-200 dark:focus:ring-red-900' 
                         : 'border-gray-300 dark:border-gray-600 focus:ring-blue-200 dark:focus:ring-blue-900'}
-                      dark:bg-gray-700 dark:text-white`}
+                      dark:bg-gray-700 dark:text-white text-start ${isRtl ? 'text-right' : 'text-left'}`}
                     placeholder={isRtl ? 'تأكيد كلمة المرور الجديدة' : 'Confirm new password'}
-                    dir="ltr"
+                    dir="auto"
                   />
                   {errors.confirmPassword && (
                     <p className="mt-1 text-sm text-red-600 dark:text-red-400 font-cairo">{errors.confirmPassword}</p>
