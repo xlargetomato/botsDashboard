@@ -20,6 +20,7 @@ export default function Navbar({ isStatic = false }) {
   const pathname = usePathname();
   
   const isAuthPage = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password' || pathname === '/reset-password';
+  const isHomePage = pathname === '/';
 
   const iconColor = theme === 'dark' ? 'white' : 'black'
 

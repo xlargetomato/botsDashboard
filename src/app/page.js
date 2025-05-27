@@ -729,7 +729,7 @@ export default function Home() {
                 className="group relative overflow-hidden py-4 px-10 rounded-xl bg-white font-bold shadow-xl hover:shadow-blue-500/25 transform hover:-translate-y-1 transition-all duration-300 inline-flex items-center justify-center">
                 <span className="absolute inset-0 bg-gradient-to-r from-blue-50 to-blue-100 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
                 <span className="relative flex items-center text-blue-700 font-cairo">
-                  {isRtl ? 'ابدأ مجانًا' : 'Start for Free'}
+                  {isRtl ? 'ابدأ الآن' : 'Start Now'}
                   <svg className={`w-5 h-5 ${isRtl ? 'mr-2 group-hover:-translate-x-1' : 'ml-2 group-hover:translate-x-1'} transition-transform`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={isRtl ? "M19 12H5m7 7l-7-7 7-7" : "M5 12h14m-7 7l7-7-7-7"} />
                   </svg>
