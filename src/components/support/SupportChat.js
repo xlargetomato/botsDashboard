@@ -46,17 +46,21 @@ const SupportChat = ({ ticketId, onClose, isRtl }) => {
     }
   }, [ticketId]);
   
+  // Only scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
-    
-    // When messages become visible in the chat window, mark admin messages as read
+  }, [messages]);
+  
+  // Separate effect for marking messages as read to avoid unnecessary API calls
+  useEffect(() => {
+    // Only mark messages as read when they become visible and there are unread messages
     if (isVisible && unreadAdminMessages.length > 0) {
       // Call API to update the seen status in the database
       markMessagesAsSeen(unreadAdminMessages);
       // Update local state
       setUnreadAdminMessages([]);
     }
-  }, [messages, isVisible, unreadAdminMessages, markMessagesAsSeen]);
+  }, [isVisible, unreadAdminMessages, markMessagesAsSeen]);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -97,69 +101,50 @@ const SupportChat = ({ ticketId, onClose, isRtl }) => {
   // Initial fetch and setup polling for real-time updates
 
   useEffect(() => {
-    // Function to check if element is in viewport
-    const checkVisibility = () => {
-      if (chatContainerRef.current) {
-        const rect = chatContainerRef.current.getBoundingClientRect();
-        const isCurrentlyVisible = (
-          rect.top >= 0 &&
-          rect.left >= 0 &&
-          rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-          rect.right <= (window.innerWidth || document.documentElement.clientWidth)
-        );
-        setIsVisible(isCurrentlyVisible);
-      }
-    };
-
     // Initial fetch regardless of visibility
     fetchMessages();
-
-    // Set up polling only when visible and with a longer interval (10 seconds)
-    const setupPolling = () => {
-      if (isVisible) {
-        // Clear any existing interval first
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-        }
-        
-        // Set up new polling interval (10 seconds instead of 5)
-        pollingIntervalRef.current = setInterval(fetchMessages, 10000);
-      } else {
-        // Clear interval when not visible
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-      }
-    };
-
-    // Call setup polling when visibility changes
-    setupPolling();
-
-    // Add event listeners for visibility checking
-    window.addEventListener('scroll', checkVisibility);
-    window.addEventListener('resize', checkVisibility);
-    document.addEventListener('visibilitychange', () => {
+    
+    // Set up polling with a 10-second interval
+    pollingIntervalRef.current = setInterval(fetchMessages, 10000);
+    
+    // Use IntersectionObserver instead of scroll events
+    // This is more efficient and won't trigger on every scroll
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Update visibility state based on intersection
+        const isIntersecting = entries[0].isIntersecting;
+        setIsVisible(isIntersecting);
+      },
+      { threshold: 0.1 } // 10% visibility is enough to consider it "visible"
+    );
+    
+    // Start observing the chat container
+    if (chatContainerRef.current) {
+      observer.observe(chatContainerRef.current);
+    }
+    
+    // Only handle document visibility changes
+    const handleVisibilityChange = () => {
       if (document.hidden) {
         setIsVisible(false);
-      } else {
-        checkVisibility();
       }
-    });
-
-    // Initial visibility check
-    checkVisibility();
-
-    // Clean up all listeners and interval on unmount
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Clean up on unmount
     return () => {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
-      window.removeEventListener('scroll', checkVisibility);
-      window.removeEventListener('resize', checkVisibility);
-      document.removeEventListener('visibilitychange', checkVisibility);
+      
+      // Disconnect the observer
+      observer.disconnect();
+      
+      // Remove visibility change listener
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [ticketId, fetchMessages, isVisible]);
+  }, [ticketId, fetchMessages]);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -175,6 +160,8 @@ const SupportChat = ({ ticketId, onClose, isRtl }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() && !file) return;
+    // Prevent duplicate submissions by checking if already sending
+    if (sending) return;
 
     try {
       setSending(true);
@@ -307,7 +294,13 @@ const SupportChat = ({ ticketId, onClose, isRtl }) => {
         <div 
           ref={chatContainerRef}
           className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-3 bg-white dark:bg-gray-800"
-          style={{ scrollBehavior: 'smooth' }}
+          style={{ 
+            scrollBehavior: 'smooth', 
+            overflowY: 'auto', 
+            height: 'calc(100% - 120px)',
+            touchAction: 'pan-y',
+            WebkitOverflowScrolling: 'touch'
+          }}
         >
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-3 sm:p-6">
@@ -322,32 +315,33 @@ const SupportChat = ({ ticketId, onClose, isRtl }) => {
             </div>
           ) : (
             <div className="space-y-4">
-              {messages.map((message, index) => {
+                {messages.map((message, index) => {
                 const isUserMessage = message.sender_type === 'user';
-                const showAvatar = index === 0 || messages[index - 1].sender_type !== message.sender_type;
-                const messageTime = new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 
                 return (
                   <div key={message.id} className="mb-4">
-                    {/* Message header with name */}
-                    {showAvatar && (
-                      <div className={`text-xs ${isUserMessage ? 'text-right' : 'text-left'} mb-1 ${isRtl ? 'rtl' : 'ltr'}`}>
-                        <span className="font-medium text-gray-600 dark:text-gray-300 font-cairo">
-                          {isUserMessage ? (isRtl ? 'أنت' : 'You') : (isRtl ? 'الدعم الفني' : 'Support')}
-                        </span>
-                      </div>
-                    )}
-                    
-                    {/* Message container */}
+                    {/* Message container with proper styling */}
                     <div className={`flex ${isUserMessage ? 'justify-end' : 'justify-start'}`}>
                       <div 
                         className={`max-w-[85%] sm:max-w-[80%] ${isUserMessage 
                           ? 'bg-blue-500 text-white' 
                           : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-white'} p-2 sm:p-3 rounded-lg shadow-sm`}
                       >
-                        {/* Message content */}
+                        {/* Message header with sender name and timestamp */}
+                        <div className="flex flex-col sm:flex-row sm:items-center mb-1 gap-1">
+                          <span className="font-semibold text-xs">
+                            {isUserMessage ? (isRtl ? 'أنت' : 'You') : (isRtl ? 'الدعم الفني' : 'Support')}
+                          </span>
+                          <span className="sm:ml-2 sm:rtl:mr-2 sm:rtl:ml-0 text-xs opacity-75">
+                            {new Date(message.created_at).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        
+                        {/* Message content with proper formatting */}
                         {message.content && (
-                          <p className="text-sm font-cairo whitespace-pre-wrap">{message.content}</p>
+                          <p className="text-sm font-cairo whitespace-pre-wrap break-words">
+                            {message.content.replace(/e4e\^[AP]M\s*\d{2}:\d{2}|e4e\^[AP]M|\^[AP]M|\b[AP]M\s*\d{2}:\d{2}\b|\be4e\b|\d{1,5}\s*$/g, '').trim()}
+                          </p>
                         )}
                         
                         {/* File attachment */}
@@ -385,18 +379,16 @@ const SupportChat = ({ ticketId, onClose, isRtl }) => {
                           </div>
                         )}
                         
-                        {/* Timestamp */}
-                        <div className="flex justify-between mt-1">
-                          <div className="text-xs">
-                            {/* Add a small dot for new admin messages that haven't been read */}
-                            {!isUserMessage && unreadAdminMessages.includes(message.id) && (
+                        {/* Indicator for unread messages */}
+                        <div className="flex justify-end mt-1">
+                          {/* Add a small dot for new admin messages that haven't been read */}
+                          {!isUserMessage && unreadAdminMessages.includes(message.id) && (
+                            <div className="flex items-center">
                               <span className="inline-block w-2 h-2 bg-red-500 rounded-full mr-1 rtl:ml-1 rtl:mr-0"></span>
-                            )}
-                          </div>
-                          <div className={`text-xs ${isUserMessage ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
-                            {messageTime}
-                          </div>
-e4e                        </div>
+                              <span className="text-xs text-red-500">{isRtl ? 'جديد' : 'New'}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -464,6 +456,7 @@ e4e                        </div>
                 type="submit"
                 disabled={(!newMessage.trim() && !file) || sending}
                 className="p-1.5 sm:p-2 text-white rounded-md bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] sm:min-w-[40px]"
+                aria-label={sending ? (isRtl ? 'جاري الإرسال...' : 'Sending...') : (isRtl ? 'إرسال' : 'Send')}
               >
                 {sending ? (
                   <div className="h-5 w-5 rounded-full border-2 border-t-transparent border-white animate-spin"></div>

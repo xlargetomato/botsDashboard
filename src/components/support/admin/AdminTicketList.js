@@ -1,7 +1,7 @@
 'use client';
 
-import { FiChevronDown, FiChevronUp } from 'react-icons/fi';
-import { useEffect } from 'react';
+import { FiChevronDown, FiChevronUp, FiTrash2 } from 'react-icons/fi';
+import { useEffect, useState } from 'react';
 
 export default function AdminTicketList({ 
   tickets, 
@@ -9,11 +9,13 @@ export default function AdminTicketList({
   error, 
   onSelectTicket, 
   onUpdateTicket,
+  onDeleteTicket,
   sortField,
   sortDirection,
   onSort,
   isRtl 
 }) {
+  const [deleting, setDeleting] = useState(null);
   // Request notification permission when component loads
   useEffect(() => {
     // Check if browser supports notifications
@@ -30,6 +32,21 @@ export default function AdminTicketList({
   const handleReopenTicket = async (e, ticketId) => {
     e.stopPropagation();
     await onUpdateTicket(ticketId, 'open');
+  };
+  
+  const handleDeleteTicket = async (e, ticketId) => {
+    e.stopPropagation();
+    if (window.confirm(isRtl ? 'هل أنت متأكد من حذف هذه التذكرة؟ لا يمكن التراجع عن هذا الإجراء.' : 'Are you sure you want to delete this ticket? This action cannot be undone.')) {
+      setDeleting(ticketId);
+      try {
+        await onDeleteTicket(ticketId);
+      } catch (error) {
+        console.error('Error deleting ticket:', error);
+        alert(isRtl ? 'فشل حذف التذكرة' : 'Failed to delete ticket');
+      } finally {
+        setDeleting(null);
+      }
+    }
   };
 
   const renderSortIcon = (field) => {
@@ -141,7 +158,7 @@ export default function AdminTicketList({
                   {renderSortIcon('status')}
                 </div>
               </th>
-              <th scope="col" className="px-6 py-3 text-right rtl:text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 <span className="font-cairo">{isRtl ? 'الإجراءات' : 'Actions'}</span>
               </th>
             </tr>
@@ -196,22 +213,31 @@ export default function AdminTicketList({
                       : isRtl ? 'مغلق' : 'Closed'}
                   </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right rtl:text-left text-sm font-medium">
-                  {ticket.status === 'open' ? (
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-center">
+                  <div className="flex justify-center space-x-2 rtl:space-x-reverse">
+                    {ticket.status === 'open' ? (
+                      <button
+                        onClick={(e) => handleCloseTicket(e, ticket.id)}
+                        className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-cairo px-3 py-1"
+                      >
+                        {isRtl ? 'إغلاق' : 'Close'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={(e) => handleReopenTicket(e, ticket.id)}
+                        className="text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 font-cairo px-3 py-1"
+                      >
+                        {isRtl ? 'إعادة فتح' : 'Reopen'}
+                      </button>
+                    )}
                     <button
-                      onClick={(e) => handleCloseTicket(e, ticket.id)}
-                      className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-cairo"
+                      onClick={(e) => handleDeleteTicket(e, ticket.id)}
+                      disabled={deleting === ticket.id}
+                      className={`text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-300 ${deleting === ticket.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
-                      {isRtl ? 'إغلاق' : 'Close'}
+                      <FiTrash2 className="h-5 w-5" />
                     </button>
-                  ) : (
-                    <button
-                      onClick={(e) => handleReopenTicket(e, ticket.id)}
-                      className="text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 font-cairo"
-                    >
-                      {isRtl ? 'إعادة فتح' : 'Reopen'}
-                    </button>
-                  )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -295,21 +321,31 @@ export default function AdminTicketList({
             </div>
             
             <div className="flex justify-end border-t pt-2 dark:border-gray-700">
-              {ticket.status === 'open' ? (
+              <div className="flex space-x-2 rtl:space-x-reverse">
+                {ticket.status === 'open' ? (
+                  <button
+                    onClick={(e) => handleCloseTicket(e, ticket.id)}
+                    className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-cairo text-sm px-3 py-1"
+                  >
+                    {isRtl ? 'إغلاق' : 'Close'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={(e) => handleReopenTicket(e, ticket.id)}
+                    className="text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 font-cairo text-sm px-3 py-1"
+                  >
+                    {isRtl ? 'إعادة فتح' : 'Reopen'}
+                  </button>
+                )}
                 <button
-                  onClick={(e) => handleCloseTicket(e, ticket.id)}
-                  className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-cairo text-sm px-3 py-1"
+                  onClick={(e) => handleDeleteTicket(e, ticket.id)}
+                  disabled={deleting === ticket.id}
+                  className={`text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-300 flex items-center ${deleting === ticket.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
-                  {isRtl ? 'إغلاق' : 'Close'}
+                  <FiTrash2 className="h-4 w-4 mr-1 rtl:ml-1 rtl:mr-0" />
+                  <span className="font-cairo text-sm">{isRtl ? 'حذف' : 'Delete'}</span>
                 </button>
-              ) : (
-                <button
-                  onClick={(e) => handleReopenTicket(e, ticket.id)}
-                  className="text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 font-cairo text-sm px-3 py-1"
-                >
-                  {isRtl ? 'إعادة فتح' : 'Reopen'}
-                </button>
-              )}
+              </div>
             </div>
           </div>
         ))}

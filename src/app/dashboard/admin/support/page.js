@@ -102,6 +102,32 @@ export default function AdminSupportPage() {
       return false;
     }
   };
+  
+  const handleDeleteTicket = async (ticketId) => {
+    try {
+      const response = await fetch('/api/admin/support/tickets/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ticketId }),
+      });
+
+      if (response.ok) {
+        // Remove the deleted ticket from the local state
+        setTickets(prev => prev.filter(ticket => ticket.id !== ticketId));
+        return true;
+      } else {
+        const error = await response.json();
+        setError(error.error || 'Failed to delete ticket');
+        return false;
+      }
+    } catch (error) {
+      console.error('Error deleting ticket:', error);
+      setError('Failed to delete ticket');
+      return false;
+    }
+  };
 
   // Apply filters and sorting
   const filteredTickets = tickets.filter(ticket => {
@@ -237,6 +263,7 @@ export default function AdminSupportPage() {
                 error={error}
                 onSelectTicket={handleSelectTicket}
                 onUpdateTicket={handleUpdateTicket}
+                onDeleteTicket={handleDeleteTicket}
                 sortField={sortField}
                 sortDirection={sortDirection}
                 onSort={handleSort}

@@ -17,6 +17,7 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
   const [ticketStatus, setTicketStatus] = useState('open'); // Default to open
   const [modalImage, setModalImage] = useState(null);
   const [unreadUserMessages, setUnreadUserMessages] = useState([]);
+  const [sending, setSending] = useState(false); // Add sending state to prevent duplicate submissions
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const pollingIntervalRef = useRef(null);
@@ -156,8 +157,11 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() && !file) return;
+    // Prevent duplicate submissions by checking if already sending
+    if (sending) return;
 
     try {
+      setSending(true);
       setError('');
       let fileData = null;
       
@@ -222,6 +226,8 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
     } catch (error) {
       console.error('Error sending message:', error);
       setError(isRtl ? 'فشل إرسال الرسالة' : 'Failed to send message');
+    } finally {
+      setSending(false); // Reset sending state whether successful or not
     }
   };
 
@@ -260,7 +266,7 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
   };
 
   return (
-    <div className="flex flex-col h-[80vh] sm:h-[85vh] md:h-[600px] w-full max-w-full md:max-w-4xl mx-auto overflow-hidden bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 shadow-md">
+    <div className="flex flex-col h-[600px] sm:h-[700px] md:h-[800px] bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
       {/* User info and ticket status */}
       {userInfo && (
         <div className="p-2 sm:p-3 md:p-4 border-b dark:border-gray-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -309,7 +315,14 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-2 sm:p-4 relative">
+      <div className="flex-1 overflow-y-auto p-2 sm:p-4 relative"
+           style={{ 
+             scrollBehavior: 'smooth', 
+             overflowY: 'auto', 
+             height: 'calc(100% - 120px)',
+             touchAction: 'pan-y',
+             WebkitOverflowScrolling: 'touch'
+           }}>
         {ticketStatus === 'closed' && (
           <div className="sticky top-0 z-10 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 p-2 rounded-lg mb-2 text-sm font-cairo text-center">
             This ticket is closed. New messages cannot be added.
@@ -356,7 +369,14 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
                     )}
                   </div>
                   
-                  <p className="text-sm mb-1 whitespace-pre-wrap break-words font-cairo">{message.content}</p>
+                  <p className="text-sm mb-1 whitespace-pre-wrap break-words font-cairo">
+                    {typeof message.content === 'string' 
+                      ? message.content
+                        .replace(/e4e\^AM|\^AM|e4e\^PM|\^PM|AM \d{2}:\d{2}|PM \d{2}:\d{2}/g, '')
+                        .replace(/\d{1,4}\s*$/, '')
+                        .trim() 
+                      : message.content}
+                  </p>
                   
                   {message.fileUrl && (
                     <div className="mt-2">
@@ -404,7 +424,7 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
       {ticketStatus === 'open' ? (
         <form onSubmit={handleSubmit} className="p-2 sm:p-3 border-t dark:border-gray-700 sticky bottom-0 bg-white dark:bg-gray-800">
           {error && (
-            <div className="mb-2 p-2 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 text-sm rounded">
+            <div className="bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300 p-3 rounded-lg mb-3 text-sm font-cairo">
               {error}
             </div>
           )}
@@ -459,12 +479,17 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
             />
             <button
               type="submit"
-              disabled={!newMessage.trim() && !file}
+              disabled={(!newMessage.trim() && !file) || sending}
               className="p-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label={sending ? (isRtl ? 'جاري الإرسال...' : 'Sending...') : (isRtl ? 'إرسال' : 'Send')}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
+              {sending ? (
+                <div className="h-5 w-5 rounded-full border-2 border-t-transparent border-white animate-spin"></div>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              )}
             </button>
           </div>
         </form>

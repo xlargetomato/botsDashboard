@@ -2,6 +2,82 @@ import { NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db/config';
 import { getInvoice } from '@/lib/paylink/api';
 import { sendSubscriptionEmail } from '@/lib/email/emailService';
+import { redirect } from 'next/navigation';
+
+/**
+ * GET handler for browser redirects after payment completion
+ * This handles when users are redirected back from the payment gateway
+ */
+export async function GET(request) {
+  try {
+    // Get the transaction ID from the URL query parameters
+    const url = new URL(request.url);
+    const txnId = url.searchParams.get('txn_id');
+    
+    if (!txnId) {
+      return NextResponse.json(
+        { error: 'Missing transaction ID in redirect URL' },
+        { status: 400 }
+      );
+    }
+    
+    console.log(`Processing payment redirect for transaction ID: ${txnId}`);
+    
+    // Find the transaction in the database
+    const transactionResults = await executeQuery(`
+      SELECT * FROM payment_transactions 
+      WHERE transaction_id = ?
+    `, [txnId]);
+    
+    if (!transactionResults.length) {
+      console.error(`Transaction not found: ${txnId}`);
+      // Redirect to error page with message
+      return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=error&message=${encodeURIComponent('Transaction not found')}`, request.url));
+    }
+    
+    const transaction = transactionResults[0];
+    const subscriptionId = transaction.subscription_id;
+    
+    // Get subscription details
+    const subscriptionResults = await executeQuery(`
+      SELECT s.*, p.name as plan_name 
+      FROM subscriptions s
+      LEFT JOIN subscription_plans p ON s.plan_id = p.id
+      WHERE s.id = ?
+    `, [subscriptionId]);
+    
+    if (!subscriptionResults.length) {
+      console.error(`Subscription not found with ID: ${subscriptionId}`);
+      
+      // Log the actual data for debugging
+      console.log('Transaction data:', transaction);
+      
+      // For debugging: check if the subscriptionId format is correct
+      console.log(`Subscription ID type: ${typeof subscriptionId}, value: ${subscriptionId}`);
+      
+      // Redirect to payment result page with error
+      return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=error&message=${encodeURIComponent('Subscription not found')}&subscriptionId=${encodeURIComponent(subscriptionId)}&callbackUrl=${encodeURIComponent(request.url)}`, request.url));
+    }
+    
+    const subscription = subscriptionResults[0];
+    
+    // If the invoice was already processed by the webhook, the status should be updated
+    if (transaction.status === 'completed') {
+      // Payment completed - redirect to success page
+      return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=success&planName=${encodeURIComponent(subscription.plan_name)}`, request.url));
+    } else if (transaction.status === 'failed' || transaction.status === 'cancelled') {
+      // Payment failed - redirect to failure page
+      return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=failed&reason=${encodeURIComponent(transaction.status)}`, request.url));
+    } else {
+      // Payment still pending - redirect to pending page
+      return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=pending&planName=${encodeURIComponent(subscription.plan_name)}`, request.url));
+    }
+  } catch (error) {
+    console.error('Error processing payment redirect:', error);
+    // Redirect to error page
+    return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=error&message=${encodeURIComponent(error.message)}`, request.url));
+  }
+}
 
 /**
  * POST handler for Paylink.sa payment callback

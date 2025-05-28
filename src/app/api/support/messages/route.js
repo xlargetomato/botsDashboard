@@ -115,9 +115,37 @@ export async function GET(request) {
       // Continue even if we can't update the seen status
     }
 
-    // Return ticket information along with messages
+    // Clean up and format message content before sending
+    const formattedMessages = messages.map(message => {
+      // Create a clean copy with timestamp and formatting issues fixed
+      let cleanContent = message.content;
+      
+      if (cleanContent) {
+        // Comprehensive pattern cleaning
+        cleanContent = cleanContent
+          // Remove various timestamp formats
+          .replace(/e4e\^[AP]M\s*\d{2}:\d{2}/g, '')
+          .replace(/\^[AP]M\s*\d{2}:\d{2}/g, '')
+          .replace(/\b[AP]M\s*\d{2}:\d{2}\b/g, '')
+          // Remove standalone markers
+          .replace(/\be4e\^[AP]M\b/g, '')
+          .replace(/\be4e\b/g, '')
+          .replace(/\b\^[AP]M\b/g, '')
+          // Remove any trailing numbers
+          .replace(/\s\d{1,5}\s*$/g, '')
+          .trim();
+      }
+      
+      return {
+        ...message,
+        content: cleanContent,
+        sender_type: message.is_admin ? 'admin' : 'user'
+      };
+    });
+    
+    // Return ticket information along with cleaned-up messages
     return NextResponse.json({ 
-      messages, 
+      messages: formattedMessages, 
       ticket: {
         id: ticket.id,
         status: ticket.status,
