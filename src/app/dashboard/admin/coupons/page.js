@@ -187,22 +187,44 @@ export default function CouponsManagement() {
     }
     
     try {
+      setLoading(true);
+      setError(null);
+      
       const response = await fetch(`/api/admin/coupons/${couponId}`, {
         method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include' // Include credentials to ensure cookies are sent
       });
       
-      if (response.ok) {
-        setCoupons(coupons.filter(coupon => coupon.id !== couponId));
-      } else {
-        console.error('Failed to delete coupon');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error || `Server responded with status: ${response.status}`;
+        throw new Error(errorMessage);
       }
+      
+      // If successful, update the UI by removing the deleted coupon
+      setCoupons(coupons.filter(coupon => coupon.id !== couponId));
+      
+      // Show success message (you could add a success state if desired)
+      alert(isRtl ? 'تم حذف الكوبون بنجاح' : 'Coupon deleted successfully');
+      
     } catch (error) {
       console.error('Error deleting coupon:', error);
+      setError(error.message || 'Failed to delete coupon');
+      alert(isRtl ? 'فشل في حذف الكوبون' : 'Failed to delete coupon');
+    } finally {
+      setLoading(false);
     }
   };
 
   // Format date for input field (YYYY-MM-DD)
   const formatDateForInput = (date) => {
+    // Check if date is valid before formatting
+    if (!date || isNaN(date.getTime())) {
+      return ''; // Return empty string for invalid dates
+    }
     return date.toISOString().split('T')[0];
   };
 

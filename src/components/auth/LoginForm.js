@@ -164,8 +164,8 @@ export default function LoginForm() {
                         ? 'border-red-500 focus:ring-red-200 dark:focus:ring-red-900' 
                         : 'border-gray-300 dark:border-gray-600 focus:ring-blue-200 dark:focus:ring-blue-900'}
                       dark:bg-gray-700 dark:text-white text-start ${isRtl ? 'text-right' : 'text-left'}`}
-                    placeholder={isRtl ? 'أدخل بريدك الإلكتروني' : 'Enter your email'}
-                    dir="ltr"
+                    placeholder={isRtl ? 'أدخل البريد الإلكتروني' : 'Enter your email'}
+                    dir={isRtl ? 'rtl' : 'ltr'}
                   />
                   {errors.email && (
                     <p className="mt-1 text-sm text-red-600 dark:text-red-400 font-cairo">{errors.email}</p>
@@ -195,7 +195,7 @@ export default function LoginForm() {
                         : 'border-gray-300 dark:border-gray-600 focus:ring-blue-200 dark:focus:ring-blue-900'}
                       dark:bg-gray-700 dark:text-white text-start ${isRtl ? 'text-right' : 'text-left'}`}
                     placeholder={isRtl ? 'أدخل كلمة المرور' : 'Enter your password'}
-                    dir="auto"
+                    dir={isRtl ? 'rtl' : 'ltr'}
                   />
                   {errors.password && (
                     <p className="mt-1 text-sm text-red-600 dark:text-red-400 font-cairo">{errors.password}</p>

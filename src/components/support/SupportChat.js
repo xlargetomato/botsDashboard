@@ -5,7 +5,7 @@ import { useTranslation } from '@/lib/i18n/config';
 import Image from 'next/image';
 import { createPortal } from 'react-dom';
 
-export default function SupportChat({ ticketId, onClose, isRtl }) {
+const SupportChat = ({ ticketId, onClose, isRtl }) => {
   const { t } = useTranslation();
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
@@ -15,6 +15,7 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
   const [ticketStatus, setTicketStatus] = useState('open'); // Default to open
   const [modalImage, setModalImage] = useState(null);
   const [sending, setSending] = useState(false);
+  const [unreadAdminMessages, setUnreadAdminMessages] = useState([]);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const pollingIntervalRef = useRef(null);
@@ -26,7 +27,15 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+    
+    // When messages become visible in the chat window, mark admin messages as read
+    if (isVisible && unreadAdminMessages.length > 0) {
+      setUnreadAdminMessages([]);
+      
+      // Here you could also implement an API call to inform the server that these messages have been seen
+      // For example: markMessagesAsSeen(unreadAdminMessages);
+    }
+  }, [messages, isVisible, unreadAdminMessages]);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -35,6 +44,17 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
         const data = await response.json();
         // Only update if we have new messages or if it's the first load
         if (loading || data.messages.length !== messages.length) {
+          // Check for new admin messages that aren't in our current message list
+          const currentIds = new Set(messages.map(m => m.id));
+          const newAdminMessages = data.messages.filter(msg => 
+            msg.sender_type === 'admin' && !currentIds.has(msg.id)
+          );
+          
+          // If there are new admin messages and we're not loading for the first time, track them as unread
+          if (newAdminMessages.length > 0 && !loading) {
+            setUnreadAdminMessages(prev => [...prev, ...newAdminMessages.map(m => m.id)]);
+          }
+          
           setMessages(data.messages);
           
           // Update ticket status if available
@@ -51,22 +71,76 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
     } finally {
       setLoading(false);
     }
-  }, [ticketId, loading, messages.length]);
+  }, [ticketId, loading, messages]);
 
   // Initial fetch and setup polling for real-time updates
+  // Track if the component is visible in the viewport
+  const [isVisible, setIsVisible] = useState(true);
+
   useEffect(() => {
+    // Function to check if element is in viewport
+    const checkVisibility = () => {
+      if (chatContainerRef.current) {
+        const rect = chatContainerRef.current.getBoundingClientRect();
+        const isCurrentlyVisible = (
+          rect.top >= 0 &&
+          rect.left >= 0 &&
+          rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+          rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+        );
+        setIsVisible(isCurrentlyVisible);
+      }
+    };
+
+    // Initial fetch regardless of visibility
     fetchMessages();
 
-    // Set up polling for new messages every 5 seconds
-    pollingIntervalRef.current = setInterval(fetchMessages, 5000);
+    // Set up polling only when visible and with a longer interval (10 seconds)
+    const setupPolling = () => {
+      if (isVisible) {
+        // Clear any existing interval first
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+        }
+        
+        // Set up new polling interval (10 seconds instead of 5)
+        pollingIntervalRef.current = setInterval(fetchMessages, 10000);
+      } else {
+        // Clear interval when not visible
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      }
+    };
 
-    // Clean up interval on unmount
+    // Call setup polling when visibility changes
+    setupPolling();
+
+    // Add event listeners for visibility checking
+    window.addEventListener('scroll', checkVisibility);
+    window.addEventListener('resize', checkVisibility);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        setIsVisible(false);
+      } else {
+        checkVisibility();
+      }
+    });
+
+    // Initial visibility check
+    checkVisibility();
+
+    // Clean up all listeners and interval on unmount
     return () => {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
+      window.removeEventListener('scroll', checkVisibility);
+      window.removeEventListener('resize', checkVisibility);
+      document.removeEventListener('visibilitychange', checkVisibility);
     };
-  }, [ticketId, fetchMessages]);
+  }, [ticketId, fetchMessages, isVisible]);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -147,14 +221,31 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
   };
 
   return (
-    <div className="flex flex-col h-[90vh] md:h-[600px] bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden w-full md:max-w-4xl mx-auto border border-gray-200 dark:border-gray-700">
+    <div className="flex flex-col h-[80vh] sm:h-[85vh] md:h-[600px] bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden w-full md:max-w-4xl mx-auto border border-gray-200 dark:border-gray-700">
       {/* Chat header */}
-      <div className="flex justify-between items-center p-3 sm:p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10 shadow-sm">
+      <div className="flex flex-wrap justify-between items-center p-2 sm:p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10 shadow-sm gap-2">
         <div className="flex items-center">
-          <div className={`w-3 h-3 rounded-full ${ticketStatus === 'open' ? 'bg-green-500' : 'bg-gray-400'} ${isRtl ? 'ml-2' : 'mr-2'}`}></div>
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 font-cairo">
-            {ticketStatus === 'open' ? (isRtl ? 'مفتوح' : 'Open') : (isRtl ? 'مغلق' : 'Closed')}
-          </span>
+          <div className="flex items-center">
+            <div className={`w-3 h-3 rounded-full ${ticketStatus === 'open' ? 'bg-green-500' : 'bg-gray-400'} ${isRtl ? 'ml-2' : 'mr-2'}`}></div>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300 font-cairo">
+              {ticketStatus === 'open' ? (isRtl ? 'مفتوح' : 'Open') : (isRtl ? 'مغلق' : 'Closed')}
+            </span>
+          </div>
+          
+          {/* New message notification indicator */}
+          {unreadAdminMessages.length > 0 && (
+            <div className="flex items-center ml-3 rtl:mr-3 rtl:ml-0">
+              <span className="flex h-5 w-5 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-5 w-5 bg-red-500 justify-center items-center text-white text-xs">
+                  {unreadAdminMessages.length}
+                </span>
+              </span>
+              <span className="ml-1 rtl:mr-1 rtl:ml-0 text-xs font-medium text-red-500 font-cairo">
+                {isRtl ? 'رسائل جديدة' : 'New Messages'}
+              </span>
+            </div>
+          )}
         </div>
         
         {ticketStatus === 'open' && (
@@ -183,7 +274,7 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
       
       {/* Error message */}
       {error && (
-        <div className="mx-3 my-2 p-3 bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400 rounded-lg text-sm font-cairo">
+        <div className="mx-2 sm:mx-3 my-1 sm:my-2 p-2 sm:p-3 bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400 rounded-lg text-xs sm:text-sm font-cairo">
           {error}
         </div>
       )}
@@ -196,11 +287,11 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
       ) : (
         <div 
           ref={chatContainerRef}
-          className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 bg-white dark:bg-gray-800"
+          className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-3 bg-white dark:bg-gray-800"
           style={{ scrollBehavior: 'smooth' }}
         >
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center p-6">
+            <div className="h-full flex flex-col items-center justify-center text-center p-3 sm:p-6">
               <div className="bg-gray-100 dark:bg-gray-700 rounded-full p-4 mb-3">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-gray-400 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -231,9 +322,9 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
                     {/* Message container */}
                     <div className={`flex ${isUserMessage ? 'justify-end' : 'justify-start'}`}>
                       <div 
-                        className={`max-w-[80%] ${isUserMessage 
+                        className={`max-w-[85%] sm:max-w-[80%] ${isUserMessage 
                           ? 'bg-blue-500 text-white' 
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-white'} p-3 rounded-lg shadow-sm`}
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-white'} p-2 sm:p-3 rounded-lg shadow-sm`}
                       >
                         {/* Message content */}
                         {message.content && (
@@ -248,14 +339,16 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
                                 className="cursor-pointer hover:opacity-90 transition-opacity rounded-lg overflow-hidden"
                                 onClick={() => setModalImage(message.file_url)}
                               >
-                                <Image 
-                                  src={message.file_url} 
-                                  alt="Attached image" 
-                                  width={200} 
-                                  height={150} 
-                                  className="rounded-lg object-cover" 
-                                  style={{ maxWidth: '100%', height: 'auto' }}
-                                />
+                                <div className="relative w-full h-32 sm:h-40 bg-gray-200 dark:bg-gray-600 rounded overflow-hidden">
+                                  <Image 
+                                    src={message.file_url} 
+                                    alt="Attached image" 
+                                    fill
+                                    className="rounded-lg object-contain hover:opacity-90 transition-opacity"
+                                    sizes="(max-width: 768px) 100vw, 300px"
+                                  />
+                                </div>
+                                <p className="text-xs mt-1 opacity-75 truncate">{message.file_name}</p>
                               </div>
                             ) : (
                               <a 
@@ -274,8 +367,16 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
                         )}
                         
                         {/* Timestamp */}
-                        <div className={`text-xs mt-1 text-right ${isUserMessage ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
-                          {messageTime}
+                        <div className="flex justify-between mt-1">
+                          <div className="text-xs">
+                            {/* Add a small dot for new admin messages that haven't been read */}
+                            {!isUserMessage && unreadAdminMessages.includes(message.id) && (
+                              <span className="inline-block w-2 h-2 bg-red-500 rounded-full mr-1 rtl:ml-1 rtl:mr-0"></span>
+                            )}
+                          </div>
+                          <div className={`text-xs ${isUserMessage ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
+                            {messageTime}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -294,7 +395,7 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
           <form onSubmit={handleSubmit} className="">
             {/* File preview */}
             {file && (
-              <div className="flex items-center p-2 mb-2 bg-gray-100 dark:bg-gray-700 rounded-md">
+              <div className="flex items-center p-1.5 sm:p-2 mb-2 bg-gray-100 dark:bg-gray-700 rounded-md">
                 <span className="text-xs sm:text-sm truncate flex-1 font-cairo text-gray-700 dark:text-gray-300">
                   {file.name}
                 </span>
@@ -316,11 +417,11 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
             )}
             
             {/* Input area */}
-            <div className="flex items-center space-x-2 rtl:space-x-reverse bg-gray-100 dark:bg-gray-700 rounded-lg px-3 py-1">
+            <div className="flex items-center space-x-1 sm:space-x-2 rtl:space-x-reverse bg-gray-100 dark:bg-gray-700 rounded-lg px-2 sm:px-3 py-1">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                className="p-1.5 sm:p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -338,12 +439,12 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder={isRtl ? 'اكتب رسالتك هنا...' : 'Type your message here...'}
-                className="flex-1 p-2 text-sm sm:text-base bg-transparent text-gray-900 dark:text-white font-cairo focus:outline-none"
+                className="flex-1 p-1.5 sm:p-2 text-xs sm:text-sm bg-transparent text-gray-900 dark:text-white font-cairo focus:outline-none"
               />
               <button
                 type="submit"
                 disabled={(!newMessage.trim() && !file) || sending}
-                className="p-2 text-white rounded-md bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[40px]"
+                className="p-1.5 sm:p-2 text-white rounded-md bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] sm:min-w-[40px]"
               >
                 {sending ? (
                   <div className="h-5 w-5 rounded-full border-2 border-t-transparent border-white animate-spin"></div>
@@ -391,4 +492,6 @@ export default function SupportChat({ ticketId, onClose, isRtl }) {
       )}
     </div>
   );
-}
+};
+
+export default SupportChat;

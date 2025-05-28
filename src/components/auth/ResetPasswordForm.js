@@ -175,7 +175,7 @@ export default function ResetPasswordForm() {
                         : 'border-gray-300 dark:border-gray-600 focus:ring-blue-200 dark:focus:ring-blue-900'}
                       dark:bg-gray-700 dark:text-white text-start ${isRtl ? 'text-right' : 'text-left'}`}
                     placeholder={isRtl ? 'أدخل كلمة المرور الجديدة' : 'Enter new password'}
-                    dir="auto"
+                    dir={isRtl ? 'rtl' : 'ltr'}
                   />
                   {errors.password && (
                     <p className="mt-1 text-sm text-red-600 dark:text-red-400 font-cairo">{errors.password}</p>
@@ -200,7 +200,7 @@ export default function ResetPasswordForm() {
                         : 'border-gray-300 dark:border-gray-600 focus:ring-blue-200 dark:focus:ring-blue-900'}
                       dark:bg-gray-700 dark:text-white text-start ${isRtl ? 'text-right' : 'text-left'}`}
                     placeholder={isRtl ? 'تأكيد كلمة المرور الجديدة' : 'Confirm new password'}
-                    dir="auto"
+                    dir={isRtl ? 'rtl' : 'ltr'}
                   />
                   {errors.confirmPassword && (
                     <p className="mt-1 text-sm text-red-600 dark:text-red-400 font-cairo">{errors.confirmPassword}</p>

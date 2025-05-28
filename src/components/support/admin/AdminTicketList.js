@@ -58,131 +58,216 @@ export default function AdminTicketList({
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-        <thead className="bg-gray-50 dark:bg-gray-800">
-          <tr>
-            <th 
-              scope="col" 
-              className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
-              onClick={() => onSort('id')}
-            >
-              <div className="flex items-center">
-                <span className="font-cairo">{isRtl ? 'رقم التذكرة' : 'Ticket ID'}</span>
-                {renderSortIcon('id')}
-              </div>
-            </th>
-            <th 
-              scope="col" 
-              className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
-              onClick={() => onSort('subject')}
-            >
-              <div className="flex items-center">
-                <span className="font-cairo">{isRtl ? 'الموضوع' : 'Subject'}</span>
-                {renderSortIcon('subject')}
-              </div>
-            </th>
-            <th 
-              scope="col" 
-              className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
-              onClick={() => onSort('user_email')}
-            >
-              <div className="flex items-center">
-                <span className="font-cairo">{isRtl ? 'المستخدم' : 'User'}</span>
-                {renderSortIcon('user_email')}
-              </div>
-            </th>
-            <th 
-              scope="col" 
-              className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
-              onClick={() => onSort('created_at')}
-            >
-              <div className="flex items-center">
-                <span className="font-cairo">{isRtl ? 'تاريخ الإنشاء' : 'Created'}</span>
-                {renderSortIcon('created_at')}
-              </div>
-            </th>
-            <th 
-              scope="col" 
-              className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
-              onClick={() => onSort('last_message_at')}
-            >
-              <div className="flex items-center">
-                <span className="font-cairo">{isRtl ? 'آخر رسالة' : 'Last Message'}</span>
-                {renderSortIcon('last_message_at')}
-              </div>
-            </th>
-            <th 
-              scope="col" 
-              className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
-              onClick={() => onSort('status')}
-            >
-              <div className="flex items-center">
-                <span className="font-cairo">{isRtl ? 'الحالة' : 'Status'}</span>
-                {renderSortIcon('status')}
-              </div>
-            </th>
-            <th scope="col" className="px-6 py-3 text-right rtl:text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              <span className="font-cairo">{isRtl ? 'الإجراءات' : 'Actions'}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-800">
-          {tickets.map((ticket) => (
-            <tr 
-              key={ticket.id} 
-              className="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
-              onClick={() => onSelectTicket(ticket)}
-            >
-              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                #{ticket.id}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-cairo">
-                {ticket.subject}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                {ticket.user_email || ticket.user_name}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                {new Date(ticket.created_at).toLocaleDateString()}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                {ticket.last_message_at 
-                  ? new Date(ticket.last_message_at).toLocaleString() 
-                  : isRtl ? 'لا توجد رسائل' : 'No messages'}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <span className={`px-2 py-1 text-xs rounded-full font-cairo ${
-                  ticket.status === 'open'
-                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                    : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                }`}>
-                  {ticket.status === 'open'
-                    ? isRtl ? 'مفتوح' : 'Open'
-                    : isRtl ? 'مغلق' : 'Closed'}
-                </span>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-right rtl:text-left text-sm font-medium">
-                {ticket.status === 'open' ? (
-                  <button
-                    onClick={(e) => handleCloseTicket(e, ticket.id)}
-                    className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-cairo"
-                  >
-                    {isRtl ? 'إغلاق' : 'Close'}
-                  </button>
-                ) : (
-                  <button
-                    onClick={(e) => handleReopenTicket(e, ticket.id)}
-                    className="text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 font-cairo"
-                  >
-                    {isRtl ? 'إعادة فتح' : 'Reopen'}
-                  </button>
-                )}
-              </td>
+    <div>
+      {/* Desktop view - Table */}
+      <div className="hidden md:block overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-800">
+            <tr>
+              <th 
+                scope="col" 
+                className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
+                onClick={() => onSort('id')}
+              >
+                <div className="flex items-center">
+                  <span className="font-cairo">{isRtl ? 'رقم التذكرة' : 'Ticket ID'}</span>
+                  {renderSortIcon('id')}
+                </div>
+              </th>
+              <th 
+                scope="col" 
+                className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
+                onClick={() => onSort('subject')}
+              >
+                <div className="flex items-center">
+                  <span className="font-cairo">{isRtl ? 'الموضوع' : 'Subject'}</span>
+                  {renderSortIcon('subject')}
+                </div>
+              </th>
+              <th 
+                scope="col" 
+                className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
+                onClick={() => onSort('user_email')}
+              >
+                <div className="flex items-center">
+                  <span className="font-cairo">{isRtl ? 'المستخدم' : 'User'}</span>
+                  {renderSortIcon('user_email')}
+                </div>
+              </th>
+              <th 
+                scope="col" 
+                className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
+                onClick={() => onSort('created_at')}
+              >
+                <div className="flex items-center">
+                  <span className="font-cairo">{isRtl ? 'تاريخ الإنشاء' : 'Created'}</span>
+                  {renderSortIcon('created_at')}
+                </div>
+              </th>
+              <th 
+                scope="col" 
+                className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
+                onClick={() => onSort('last_message_at')}
+              >
+                <div className="flex items-center">
+                  <span className="font-cairo">{isRtl ? 'آخر رسالة' : 'Last Message'}</span>
+                  {renderSortIcon('last_message_at')}
+                </div>
+              </th>
+              <th 
+                scope="col" 
+                className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
+                onClick={() => onSort('status')}
+              >
+                <div className="flex items-center">
+                  <span className="font-cairo">{isRtl ? 'الحالة' : 'Status'}</span>
+                  {renderSortIcon('status')}
+                </div>
+              </th>
+              <th scope="col" className="px-6 py-3 text-right rtl:text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <span className="font-cairo">{isRtl ? 'الإجراءات' : 'Actions'}</span>
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-800">
+            {tickets.map((ticket) => (
+              <tr 
+                key={ticket.id} 
+                className="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
+                onClick={() => onSelectTicket(ticket)}
+              >
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                  #{ticket.id}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-cairo">
+                  {ticket.subject}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                  {ticket.user_email || ticket.user_name}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                  {new Date(ticket.created_at).toLocaleDateString()}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                  {ticket.last_message_at 
+                    ? new Date(ticket.last_message_at).toLocaleString() 
+                    : isRtl ? 'لا توجد رسائل' : 'No messages'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <span className={`px-2 py-1 text-xs rounded-full font-cairo ${
+                    ticket.status === 'open'
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                      : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                  }`}>
+                    {ticket.status === 'open'
+                      ? isRtl ? 'مفتوح' : 'Open'
+                      : isRtl ? 'مغلق' : 'Closed'}
+                  </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-right rtl:text-left text-sm font-medium">
+                  {ticket.status === 'open' ? (
+                    <button
+                      onClick={(e) => handleCloseTicket(e, ticket.id)}
+                      className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-cairo"
+                    >
+                      {isRtl ? 'إغلاق' : 'Close'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={(e) => handleReopenTicket(e, ticket.id)}
+                      className="text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 font-cairo"
+                    >
+                      {isRtl ? 'إعادة فتح' : 'Reopen'}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      
+      {/* Mobile view - Cards */}
+      <div className="grid grid-cols-1 gap-4 md:hidden">
+        {tickets.map((ticket) => (
+          <div 
+            key={ticket.id}
+            className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+            onClick={() => onSelectTicket(ticket)}
+          >
+            <div className="flex justify-between items-start mb-2">
+              <div className="font-medium text-gray-900 dark:text-white font-cairo">
+                {ticket.subject}
+              </div>
+              <span className={`px-2 py-1 text-xs rounded-full font-cairo ${
+                ticket.status === 'open'
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+              }`}>
+                {ticket.status === 'open'
+                  ? isRtl ? 'مفتوح' : 'Open'
+                  : isRtl ? 'مغلق' : 'Closed'}
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+              <div>
+                <div className="text-gray-500 dark:text-gray-400 font-cairo">
+                  {isRtl ? 'رقم التذكرة' : 'Ticket ID'}
+                </div>
+                <div className="font-medium text-gray-900 dark:text-white">#{ticket.id}</div>
+              </div>
+              
+              <div>
+                <div className="text-gray-500 dark:text-gray-400 font-cairo">
+                  {isRtl ? 'المستخدم' : 'User'}
+                </div>
+                <div className="font-medium text-gray-900 dark:text-white truncate">
+                  {ticket.user_email || ticket.user_name}
+                </div>
+              </div>
+              
+              <div>
+                <div className="text-gray-500 dark:text-gray-400 font-cairo">
+                  {isRtl ? 'تاريخ الإنشاء' : 'Created'}
+                </div>
+                <div className="text-gray-700 dark:text-gray-300">
+                  {new Date(ticket.created_at).toLocaleDateString()}
+                </div>
+              </div>
+              
+              <div>
+                <div className="text-gray-500 dark:text-gray-400 font-cairo">
+                  {isRtl ? 'آخر رسالة' : 'Last Message'}
+                </div>
+                <div className="text-gray-700 dark:text-gray-300">
+                  {ticket.last_message_at 
+                    ? new Date(ticket.last_message_at).toLocaleString() 
+                    : isRtl ? 'لا توجد رسائل' : 'No messages'}
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-end border-t pt-2 dark:border-gray-700">
+              {ticket.status === 'open' ? (
+                <button
+                  onClick={(e) => handleCloseTicket(e, ticket.id)}
+                  className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-cairo text-sm px-3 py-1"
+                >
+                  {isRtl ? 'إغلاق' : 'Close'}
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => handleReopenTicket(e, ticket.id)}
+                  className="text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 font-cairo text-sm px-3 py-1"
+                >
+                  {isRtl ? 'إعادة فتح' : 'Reopen'}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

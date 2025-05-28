@@ -22,6 +22,7 @@ const enTranslations = {
       testimonials: 'Testimonials',
       pricing: 'Pricing',
       dashboard: 'Dashboard',
+      docs: 'Docs',
     },
     admin: {
       dashboard: 'Admin Dashboard',
@@ -148,6 +149,7 @@ const arTranslations = {
       testimonials: 'الشهادات',
       pricing: 'التسعير',
       dashboard: 'لوحة التحكم',
+      docs: 'دليل المستخدم',
     },
     admin: {
       dashboard: 'لوحة تحكم المشرف',

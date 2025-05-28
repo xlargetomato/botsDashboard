@@ -160,34 +160,72 @@ export default function AdminSupportPage() {
 
         {view === 'list' && (
           <>
-            <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div className="relative rounded-md shadow-sm max-w-md">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FiSearch className="h-5 w-5 text-gray-400" />
-                </div>
-                <input
-                  type="text"
-                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-700 placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-gray-900 dark:text-white font-cairo"
-                  placeholder={isRtl ? "البحث في التذاكر..." : "Search tickets..."}
-                  value={searchTerm}
-                  onChange={handleSearch}
-                />
-              </div>
+            <div className="mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+                <h1 className="text-2xl font-semibold font-cairo text-gray-900 dark:text-white">
+                  {isRtl ? 'إدارة الدعم' : 'Support Management'}
+                </h1>
 
-              <div className="flex items-center space-x-4 rtl:space-x-reverse">
-                <div className="relative inline-block text-left">
-                  <div className="flex items-center">
-                    <FiFilter className="mr-2 rtl:ml-2 rtl:mr-0 h-5 w-5 text-gray-500 dark:text-gray-400" />
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <div className="relative flex-grow">
+                    <input
+                      type="text"
+                      placeholder={isRtl ? 'البحث عن تذاكر...' : 'Search tickets...'}
+                      className="w-full py-2 pl-10 rtl:pr-10 rtl:pl-4 pr-4 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white font-cairo"
+                      value={searchTerm}
+                      onChange={handleSearch}
+                    />
+                    <div className="absolute left-3 rtl:right-3 rtl:left-auto top-2.5 text-gray-500 dark:text-gray-400">
+                      <FiSearch className="h-5 w-5" />
+                    </div>
+                  </div>
+
+                  <div className="relative min-w-[150px]">
                     <select
-                      className="block pl-3 pr-10 py-2 text-base border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-cairo"
                       value={filterStatus}
                       onChange={handleFilterStatus}
+                      className="w-full py-2 pl-3 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white font-cairo"
                     >
-                      <option value="all" className="font-cairo">{isRtl ? 'جميع الحالات' : 'All Statuses'}</option>
-                      <option value="open" className="font-cairo">{isRtl ? 'مفتوح' : 'Open'}</option>
-                      <option value="closed" className="font-cairo">{isRtl ? 'مغلق' : 'Closed'}</option>
+                      <option value="all">{isRtl ? 'جميع الحالات' : 'All Statuses'}</option>
+                      <option value="open">{isRtl ? 'مفتوحة' : 'Open'}</option>
+                      <option value="closed">{isRtl ? 'مغلقة' : 'Closed'}</option>
                     </select>
+                    <div className="absolute inset-y-0 right-0 rtl:left-0 rtl:right-auto flex items-center px-2 pointer-events-none text-gray-500 dark:text-gray-400">
+                      <FiChevronDown className="h-4 w-4" />
+                    </div>
                   </div>
+                </div>
+              </div>
+              
+              {/* Mobile sorting options */}
+              <div className="md:hidden mb-4">
+                <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300 font-cairo">
+                    {isRtl ? 'ترتيب حسب:' : 'Sort by:'}  
+                  </span>
+                  <select 
+                    className="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 text-sm font-cairo"
+                    value={sortField}
+                    onChange={(e) => {
+                      setSortField(e.target.value);
+                      setSortDirection('asc');
+                    }}
+                  >
+                    <option value="created_at">{isRtl ? 'تاريخ الإنشاء' : 'Created Date'}</option>
+                    <option value="last_message_at">{isRtl ? 'آخر تحديث' : 'Last Updated'}</option>
+                    <option value="subject">{isRtl ? 'الموضوع' : 'Subject'}</option>
+                    <option value="status">{isRtl ? 'الحالة' : 'Status'}</option>
+                  </select>
+                  <button 
+                    onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
+                    className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+                  >
+                    {sortDirection === 'asc' ? (
+                      <FiChevronUp className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                    ) : (
+                      <FiChevronDown className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
