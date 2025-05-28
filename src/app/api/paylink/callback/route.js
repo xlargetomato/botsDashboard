@@ -5,6 +5,23 @@ import { sendSubscriptionEmail } from '@/lib/email/emailService';
 import { redirect } from 'next/navigation';
 
 /**
+ * Helper function to process subscription and redirect appropriately
+ */
+function processSubscriptionForRedirect(subscription, transaction, request) {
+  // If the invoice was already processed by the webhook, the status should be updated
+  if (transaction.status === 'completed') {
+    // Payment completed - redirect to success page
+    return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=success&planName=${encodeURIComponent(subscription.plan_name)}`, request.url));
+  } else if (transaction.status === 'failed' || transaction.status === 'cancelled') {
+    // Payment failed - redirect to failure page
+    return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=failed&reason=${encodeURIComponent(transaction.status)}`, request.url));
+  } else {
+    // Payment still pending - redirect to pending page
+    return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=pending&planName=${encodeURIComponent(subscription.plan_name)}`, request.url));
+  }
+}
+
+/**
  * GET handler for browser redirects after payment completion
  * This handles when users are redirected back from the payment gateway
  */
@@ -23,20 +40,46 @@ export async function GET(request) {
     
     console.log(`Processing payment redirect for transaction ID: ${txnId}`);
     
-    // Find the transaction in the database
+    // Find the transaction in the database using multiple approaches
+    // First check in our mapping table for better tracking
+    let mappingResults;
+    try {
+      mappingResults = await executeQuery(`
+        SELECT * FROM subscription_payment_mappings 
+        WHERE transaction_id = ?
+      `, [txnId]);
+      
+      if (mappingResults.length) {
+        console.log('Found subscription mapping in GET handler:', mappingResults[0]);
+      }
+    } catch (mappingError) {
+      console.error('Error checking subscription mapping in GET handler:', mappingError);
+      // Non-fatal error, continue with traditional lookup
+    }
+    
+    // Try to find the transaction in the database
     const transactionResults = await executeQuery(`
       SELECT * FROM payment_transactions 
-      WHERE transaction_id = ?
-    `, [txnId]);
+      WHERE transaction_id = ? OR paylink_reference = ?
+    `, [txnId, txnId]);
     
     if (!transactionResults.length) {
       console.error(`Transaction not found: ${txnId}`);
       // Redirect to error page with message
-      return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=error&message=${encodeURIComponent('Transaction not found')}`, request.url));
+      return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=error&message=${encodeURIComponent('Transaction not found')}&txnId=${encodeURIComponent(txnId)}`, request.url));
     }
     
     const transaction = transactionResults[0];
-    const subscriptionId = transaction.subscription_id;
+    let subscriptionId = transaction.subscription_id;
+    
+    // If we found a mapping, use that subscription ID instead
+    if (mappingResults && mappingResults.length) {
+      const mappedSubscriptionId = mappingResults[0].subscription_id;
+      console.log(`Using mapped subscription ID: ${mappedSubscriptionId} instead of ${subscriptionId}`);
+      subscriptionId = mappedSubscriptionId;
+    }
+    
+    console.log(`Looking up subscription details for ID: ${subscriptionId}`);
     
     // Get subscription details
     const subscriptionResults = await executeQuery(`
@@ -49,6 +92,20 @@ export async function GET(request) {
     if (!subscriptionResults.length) {
       console.error(`Subscription not found with ID: ${subscriptionId}`);
       
+      // Try fallback by transaction ID
+      const fallbackResults = await executeQuery(`
+        SELECT s.*, p.name as plan_name 
+        FROM subscriptions s
+        LEFT JOIN subscription_plans p ON s.plan_id = p.id
+        WHERE s.transaction_id = ?
+      `, [txnId]);
+      
+      if (fallbackResults.length) {
+        console.log(`Found subscription using transaction_id: ${txnId}`);
+        // Continue with this subscription instead
+        return processSubscriptionForRedirect(fallbackResults[0], transaction, request);
+      }
+      
       // Log the actual data for debugging
       console.log('Transaction data:', transaction);
       
@@ -56,7 +113,7 @@ export async function GET(request) {
       console.log(`Subscription ID type: ${typeof subscriptionId}, value: ${subscriptionId}`);
       
       // Redirect to payment result page with error
-      return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=error&message=${encodeURIComponent('Subscription not found')}&subscriptionId=${encodeURIComponent(subscriptionId)}&callbackUrl=${encodeURIComponent(request.url)}`, request.url));
+      return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=error&message=${encodeURIComponent('Subscription not found')}&subscriptionId=${encodeURIComponent(subscriptionId)}&txnId=${encodeURIComponent(txnId)}&callbackUrl=${encodeURIComponent(request.url)}`, request.url));
     }
     
     const subscription = subscriptionResults[0];
@@ -105,18 +162,42 @@ export async function POST(request) {
     // Verify the payment status with Paylink API
     const invoiceDetails = await getInvoice(invoiceId);
     
-    // Get the transaction reference from the database
+    // Try to find a transaction that matches this transaction ID using multiple approaches
+    // First check in our mapping table for better tracking
+    let mappingResults;
+    try {
+      mappingResults = await executeQuery(`
+        SELECT * FROM subscription_payment_mappings 
+        WHERE transaction_id = ? OR paylink_invoice_id = ?
+      `, [callbackData.transaction_id, invoiceId]);
+      
+      if (mappingResults.length) {
+        console.log('Found subscription mapping:', mappingResults[0]);
+      }
+    } catch (mappingError) {
+      console.error('Error checking subscription mapping:', mappingError);
+      // Non-fatal error, continue with traditional lookup
+    }
+    
+    // Then try to find a transaction that matches in the payment_transactions table
     const transactionResults = await executeQuery(`
       SELECT * FROM payment_transactions 
-      WHERE paylink_invoice_id = ?
-    `, [invoiceId]);
+      WHERE transaction_id = ? OR paylink_reference = ? OR paylink_invoice_id = ?
+    `, [callbackData.transaction_id, callbackData.transaction_id, invoiceId]);
     
     if (!transactionResults.length) {
+      console.error(`No transaction found for ID: ${callbackData.transaction_id}`);
       return NextResponse.json(
-        { error: 'Transaction not found for the given invoice ID' },
+        { 
+          error: 'Transaction not found', 
+          message: `No transaction found for ID: ${callbackData.transaction_id}`
+        },
         { status: 404 }
       );
     }
+    
+    // Log all transaction data for debugging
+    console.log('Transaction data found:', transactionResults[0]);
     
     const transaction = transactionResults[0];
     const subscriptionId = transaction.subscription_id;
@@ -138,18 +219,35 @@ export async function POST(request) {
           WHERE paylink_invoice_id = ?
         `, [paymentStatus, JSON.stringify(invoiceDetails), invoiceId]);
         
-        // Get subscription details with user information for email notification
-        const subscriptionResults = await executeQuery(`
-          SELECT s.*, p.name as plan_name, p.description as plan_description, 
-                 u.email as user_email, u.name as user_name, CONCAT(u.first_name, ' ', u.last_name) as full_name
-          FROM subscriptions s
-          LEFT JOIN subscription_plans p ON s.plan_id = p.id
-          LEFT JOIN users u ON s.user_id = u.id
-          WHERE s.id = ?
-        `, [subscriptionId]);
+        // Get subscription details, try the mapping table first if available
+        let targetSubscriptionId = subscriptionId;
         
+        // If we found a mapping earlier, use that subscription ID
+        if (mappingResults && mappingResults.length) {
+          targetSubscriptionId = mappingResults[0].subscription_id;
+          console.log(`Using mapped subscription ID: ${targetSubscriptionId} instead of ${subscriptionId}`);
+        }
+        
+        // Now get the subscription with the appropriate ID
+        const subscriptionResults = await executeQuery(`
+          SELECT * FROM subscriptions 
+          WHERE id = ?
+          `, [targetSubscriptionId]);
+
         if (!subscriptionResults.length) {
-          throw new Error(`Subscription not found with ID: ${subscriptionId}`);
+          console.error(`Subscription not found with ID: ${targetSubscriptionId}`);
+          // Try a fallback query
+          const fallbackResults = await executeQuery(`
+            SELECT * FROM subscriptions 
+            WHERE transaction_id = ?
+            `, [transaction.transaction_id]);
+            
+          if (fallbackResults.length) {
+            console.log(`Found subscription with transaction_id: ${transaction.transaction_id}`);
+            subscriptionResults.push(fallbackResults[0]);
+          } else {
+            throw new Error(`Subscription not found with ID: ${targetSubscriptionId} or transaction_id: ${transaction.transaction_id}`);
+          }
         }
         
         const subscription = subscriptionResults[0];

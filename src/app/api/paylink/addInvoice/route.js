@@ -149,12 +149,16 @@ export async function POST(request) {
     // Create the invoice in Paylink.sa
     const invoiceResponse = await createInvoice(invoiceData);
     
-    // Store the Paylink invoice details in the database
+    // Store the Paylink invoice details in the database with a transaction ID that we'll track
+    const paymentTransactionId = uuidv4();
+    console.log(`Creating payment transaction with ID: ${paymentTransactionId} for subscription: ${subscriptionId}`);
+    
     await executeQuery(`
       INSERT INTO payment_transactions 
       (id, user_id, subscription_id, amount, payment_method, transaction_id, status, paylink_invoice_id, paylink_reference)
-      VALUES (UUID(), ?, ?, ?, 'paylink', ?, 'pending', ?, ?)
+      VALUES (?, ?, ?, ?, 'paylink', ?, 'pending', ?, ?)
     `, [
+      paymentTransactionId,
       userId,
       subscriptionId,
       amount,
@@ -162,6 +166,33 @@ export async function POST(request) {
       invoiceResponse.id,
       referenceNumber
     ]);
+    
+    // Store relationship between transaction ID and subscription ID for better tracking
+    try {
+      // Create tracking table if it doesn't exist
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS subscription_payment_mappings (
+          id VARCHAR(36) PRIMARY KEY,
+          subscription_id VARCHAR(36) NOT NULL,
+          transaction_id VARCHAR(255) NOT NULL,
+          paylink_invoice_id VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX (transaction_id),
+          INDEX (paylink_invoice_id),
+          INDEX (subscription_id)
+        )
+      `);
+      
+      // Insert tracking record
+      await executeQuery(`
+        INSERT INTO subscription_payment_mappings 
+        (id, subscription_id, transaction_id, paylink_invoice_id)
+        VALUES (UUID(), ?, ?, ?)
+      `, [subscriptionId, referenceNumber, invoiceResponse.id]);
+    } catch (trackingError) {
+      console.error('Failed to create subscription payment mapping:', trackingError);
+      // Non-fatal error, continue with the process
+    }
     
     // Update the subscription with the Paylink reference
     await executeQuery(`
