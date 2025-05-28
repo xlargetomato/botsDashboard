@@ -16,6 +16,8 @@ const SupportChat = ({ ticketId, onClose, isRtl }) => {
   const [modalImage, setModalImage] = useState(null);
   const [sending, setSending] = useState(false);
   const [unreadAdminMessages, setUnreadAdminMessages] = useState([]);
+  // Track if the component is visible in the viewport
+  const [isVisible, setIsVisible] = useState(true);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const pollingIntervalRef = useRef(null);
@@ -25,17 +27,36 @@ const SupportChat = ({ ticketId, onClose, isRtl }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Function to mark messages as seen on the server
+  const markMessagesAsSeen = useCallback(async (messageIds) => {
+    try {
+      await fetch('/api/support/messages/seen', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ticketId,
+          messageIds
+        }),
+      });
+      // We don't need to do anything with the response as we're already updating the UI
+    } catch (error) {
+      console.error('Error marking messages as seen:', error);
+    }
+  }, [ticketId]);
+  
   useEffect(() => {
     scrollToBottom();
     
     // When messages become visible in the chat window, mark admin messages as read
     if (isVisible && unreadAdminMessages.length > 0) {
+      // Call API to update the seen status in the database
+      markMessagesAsSeen(unreadAdminMessages);
+      // Update local state
       setUnreadAdminMessages([]);
-      
-      // Here you could also implement an API call to inform the server that these messages have been seen
-      // For example: markMessagesAsSeen(unreadAdminMessages);
     }
-  }, [messages, isVisible, unreadAdminMessages]);
+  }, [messages, isVisible, unreadAdminMessages, markMessagesAsSeen]);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -74,8 +95,6 @@ const SupportChat = ({ ticketId, onClose, isRtl }) => {
   }, [ticketId, loading, messages]);
 
   // Initial fetch and setup polling for real-time updates
-  // Track if the component is visible in the viewport
-  const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
     // Function to check if element is in viewport
@@ -377,7 +396,7 @@ const SupportChat = ({ ticketId, onClose, isRtl }) => {
                           <div className={`text-xs ${isUserMessage ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
                             {messageTime}
                           </div>
-                        </div>
+e4e                        </div>
                       </div>
                     </div>
                   </div>

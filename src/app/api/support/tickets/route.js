@@ -41,6 +41,10 @@ export async function GET(request) {
       );
     }
     
+    // Check if we should include unread message counts
+    const { searchParams } = new URL(request.url);
+    const includeUnread = searchParams.get('includeUnread') === 'true';
+    
     // Ensure support tables exist
     try {
       await createSupportTables();
@@ -49,16 +53,31 @@ export async function GET(request) {
       // Continue anyway as we'll handle empty results
     }
 
-    // Get tickets for the user
-    const tickets = await executeQuery(
-      `SELECT t.*, 
+    // Get tickets for the user with message counts
+    let query = `
+      SELECT t.*, 
         (SELECT COUNT(*) FROM support_messages WHERE ticket_id = t.id) as message_count,
         (SELECT created_at FROM support_messages WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) as last_message_at
+    `;
+    
+    // Add unread message counts if requested
+    if (includeUnread) {
+      query += `,
+        (SELECT COUNT(*) FROM support_messages 
+         WHERE ticket_id = t.id 
+         AND sender_id != ? 
+         AND is_seen = FALSE) as unread_admin_messages
+      `;
+    }
+    
+    query += `
       FROM support_tickets t 
       WHERE t.user_id = ? 
-      ORDER BY t.status = 'open' DESC, t.updated_at DESC`,
-      [auth.userId]
-    );
+      ORDER BY t.status = 'open' DESC, t.updated_at DESC
+    `;
+    
+    const params = includeUnread ? [auth.userId, auth.userId] : [auth.userId];
+    const tickets = await executeQuery(query, params);
 
     return NextResponse.json({ tickets }, { headers });
   } catch (error) {

@@ -1,6 +1,7 @@
 'use client';
 
 import { FiChevronDown, FiChevronUp } from 'react-icons/fi';
+import { useEffect } from 'react';
 
 export default function AdminTicketList({ 
   tickets, 
@@ -13,6 +14,14 @@ export default function AdminTicketList({
   onSort,
   isRtl 
 }) {
+  // Request notification permission when component loads
+  useEffect(() => {
+    // Check if browser supports notifications
+    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      // Request permission for notifications
+      Notification.requestPermission();
+    }
+  }, []);
   const handleCloseTicket = async (e, ticketId) => {
     e.stopPropagation();
     await onUpdateTicket(ticketId, 'closed');
@@ -116,6 +125,14 @@ export default function AdminTicketList({
               </th>
               <th 
                 scope="col" 
+                className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"
+              >
+                <div className="flex items-center">
+                  <span className="font-cairo">{isRtl ? 'الإشعارات' : 'Notifications'}</span>
+                </div>
+              </th>
+              <th 
+                scope="col" 
                 className="px-6 py-3 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer"
                 onClick={() => onSort('status')}
               >
@@ -148,10 +165,25 @@ export default function AdminTicketList({
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                   {new Date(ticket.created_at).toLocaleDateString()}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                   {ticket.last_message_at 
                     ? new Date(ticket.last_message_at).toLocaleString() 
                     : isRtl ? 'لا توجد رسائل' : 'No messages'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  {ticket.unread_user_messages > 0 && (
+                    <div className="flex items-center">
+                      <span className="flex h-5 w-5 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-5 w-5 bg-red-500 justify-center items-center text-white text-xs">
+                          {ticket.unread_user_messages}
+                        </span>
+                      </span>
+                      <span className="ml-2 rtl:mr-2 rtl:ml-0 text-xs font-medium text-red-500 font-cairo">
+                        {isRtl ? 'رسائل جديدة' : 'New Messages'}
+                      </span>
+                    </div>
+                  )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`px-2 py-1 text-xs rounded-full font-cairo ${
@@ -209,6 +241,20 @@ export default function AdminTicketList({
                   : isRtl ? 'مغلق' : 'Closed'}
               </span>
             </div>
+            
+            {ticket.unread_user_messages > 0 && (
+              <div className="flex items-center mb-2">
+                <span className="flex h-5 w-5 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-5 w-5 bg-red-500 justify-center items-center text-white text-xs">
+                    {ticket.unread_user_messages}
+                  </span>
+                </span>
+                <span className="ml-2 rtl:mr-2 rtl:ml-0 text-xs font-medium text-red-500 font-cairo">
+                  {isRtl ? 'رسائل جديدة من العميل' : 'New messages from client'}
+                </span>
+              </div>
+            )}
             
             <div className="grid grid-cols-2 gap-2 text-sm mb-3">
               <div>

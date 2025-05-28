@@ -9,6 +9,7 @@ export async function GET(request) {
     // Check if we're looking for a specific user's tickets
     const url = new URL(request.url);
     const userId = url.searchParams.get('userId');
+    const includeUnread = url.searchParams.get('includeUnread') === 'true';
     const isAdminRequest = request.headers.get('x-admin-access') === 'true';
     
     // For admin dashboard requests, we'll be more lenient with auth
@@ -27,6 +28,19 @@ export async function GET(request) {
       SELECT t.*, u.name as user_name, u.email as user_email,
         (SELECT COUNT(*) FROM support_messages WHERE ticket_id = t.id) as message_count,
         (SELECT MAX(created_at) FROM support_messages WHERE ticket_id = t.id) as last_message_at
+    `;
+    
+    // Add unread message counts if requested
+    if (includeUnread) {
+      query += `,
+        (SELECT COUNT(*) FROM support_messages 
+         WHERE ticket_id = t.id 
+         AND sender_id = t.user_id  -- Messages from the ticket owner (user)
+         AND is_seen = FALSE) as unread_user_messages
+      `;
+    }
+    
+    query += `
       FROM support_tickets t
       JOIN users u ON t.user_id = u.id
     `;

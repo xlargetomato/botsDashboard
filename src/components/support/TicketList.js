@@ -8,27 +8,45 @@ export default function TicketList({ onSelectTicket, onNewTicket, isRtl }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [pollingInterval, setPollingInterval] = useState(null);
+
+  const fetchTickets = async () => {
+    try {
+      const response = await fetch('/api/support/tickets?includeUnread=true');
+      if (response.ok) {
+        const data = await response.json();
+        setTickets(data.tickets);
+      } else {
+        const error = await response.json();
+        setError(error.error || 'Failed to load tickets');
+      }
+    } catch (error) {
+      setError('Failed to load tickets');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchTickets = async () => {
-      try {
-        const response = await fetch('/api/support/tickets');
-        if (response.ok) {
-          const data = await response.json();
-          setTickets(data.tickets);
-        } else {
-          const error = await response.json();
-          setError(error.error || 'Failed to load tickets');
-        }
-      } catch (error) {
-        setError('Failed to load tickets');
-      } finally {
-        setLoading(false);
-      }
-    };
-
+    // Initial fetch
     fetchTickets();
-  }, []);
+    
+    // Set up polling every 30 seconds to check for new messages
+    const interval = setInterval(fetchTickets, 30000);
+    setPollingInterval(interval);
+    
+    // Cleanup function
+    return () => {
+      clearInterval(interval); // Clear the interval we just created
+    };
+  }, []); // No dependencies needed as we're just setting up polling
+  
+  // Cleanup on unmount for any interval stored in state
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) clearInterval(pollingInterval);
+    };
+  }, [pollingInterval]);
 
   const handleCloseTicket = async (ticketId) => {
     try {
@@ -113,6 +131,15 @@ export default function TicketList({ onSelectTicket, onNewTicket, isRtl }) {
                   </p>
                 </div>
                 <div className="flex items-center space-x-2 rtl:space-x-reverse">
+                  {/* Unread messages notification indicator */}
+                  {ticket.unread_admin_messages > 0 && (
+                    <span className="flex h-5 w-5 relative">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-5 w-5 bg-red-500 justify-center items-center text-white text-xs">
+                        {ticket.unread_admin_messages}
+                      </span>
+                    </span>
+                  )}
                   <span
                     className={`px-2 py-1 text-xs rounded-full font-cairo ${
                       ticket.status === 'open'
@@ -137,20 +164,27 @@ export default function TicketList({ onSelectTicket, onNewTicket, isRtl }) {
                   )}
                 </div>
               </div>
-              {ticket.message_count > 0 && (
-                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 font-cairo">
-                  {ticket.message_count}{' '}
-                  {isRtl
-                    ? ticket.message_count === 1
-                      ? 'رسالة'
-                      : 'رسائل'
-                    : ticket.message_count === 1
-                    ? 'message'
-                    : 'messages'}
-                  {ticket.last_message_at &&
-                    ` • ${new Date(ticket.last_message_at).toLocaleTimeString()}`}
-                </p>
-              )}
+              <div className="mt-2 flex justify-between items-center">
+                {ticket.message_count > 0 && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 font-cairo">
+                    {ticket.message_count}{' '}
+                    {isRtl
+                      ? ticket.message_count === 1
+                        ? 'رسالة'
+                        : 'رسائل'
+                      : ticket.message_count === 1
+                      ? 'message'
+                      : 'messages'}
+                    {ticket.last_message_at &&
+                      ` • ${new Date(ticket.last_message_at).toLocaleTimeString()}`}
+                  </p>
+                )}
+                {ticket.unread_admin_messages > 0 && (
+                  <p className="text-xs text-red-500 font-cairo font-medium">
+                    {isRtl ? 'رد جديد من الدعم الفني' : 'New reply from support'}
+                  </p>
+                )}
+              </div>
             </div>
           ))}
         </div>

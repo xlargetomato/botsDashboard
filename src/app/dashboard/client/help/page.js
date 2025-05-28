@@ -259,16 +259,6 @@ export default function HelpPage() {
                       </p>
                     </div>
                     
-                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer">
-                      <h3 className="font-bold text-gray-900 dark:text-white mb-2">
-                        {isRtl ? 'واجهة برمجة التطبيقات (API)' : 'API Reference'}
-                      </h3>
-                      <p className="text-sm">
-                        {isRtl 
-                          ? 'استكشف واجهة برمجة التطبيقات الخاصة بنا لدمج البوت مع تطبيقاتك.' 
-                          : 'Explore our API for integrating the bot with your applications.'}
-                      </p>
-                    </div>
                     
                     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer">
                       <h3 className="font-bold text-gray-900 dark:text-white mb-2">

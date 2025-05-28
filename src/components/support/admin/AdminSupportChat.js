@@ -31,7 +31,7 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
       
       const unseenIds = unseenMessages.map(msg => msg.id);
       
-      await fetch('/api/admin/support/messages/seen', {
+      const response = await fetch('/api/admin/support/messages/seen', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -42,12 +42,17 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
         }),
       });
       
-      // Update local state to mark messages as seen
-      setMessages(prevMessages => 
-        prevMessages.map(msg => 
-          unseenIds.includes(msg.id) ? { ...msg, is_seen: true } : msg
-        )
-      );
+      if (response.ok) {
+        // Update local state to mark messages as seen
+        setMessages(prevMessages => 
+          prevMessages.map(msg => 
+            unseenIds.includes(msg.id) ? { ...msg, is_seen: true } : msg
+          )
+        );
+        
+        // Clear any unread message notifications
+        setUnreadUserMessages(prev => prev.filter(id => !unseenIds.includes(id)));
+      }
     } catch (error) {
       console.error('Error marking messages as seen:', error);
     }
@@ -76,8 +81,15 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
       const response = await fetch(`/api/admin/support/messages?ticketId=${ticketId}`);
       if (response.ok) {
         const data = await response.json();
-        // Only update if we have new messages or if it's the first load
-        if (loading || data.messages.length !== messages.length) {
+        
+        // Only update if we have new messages, different content, or if it's the first load
+        const hasNewMessages = data.messages.length !== messages.length;
+        const hasChangedMessages = data.messages.some((newMsg, i) => {
+          const oldMsg = messages[i];
+          return !oldMsg || newMsg.id !== oldMsg.id || newMsg.is_seen !== oldMsg.is_seen;
+        });
+        
+        if (loading || hasNewMessages || hasChangedMessages) {
           // Check for new user messages that aren't in our current message list
           const currentIds = new Set(messages.map(m => m.id));
           const newUserMessages = data.messages.filter(msg => 
@@ -87,6 +99,13 @@ const AdminSupportChat = ({ ticketId, isRtl }) => {
           // If there are new user messages and we're not loading for the first time, track them as unread
           if (newUserMessages.length > 0 && !loading) {
             setUnreadUserMessages(prev => [...prev, ...newUserMessages.map(m => m.id)]);
+            // Show notification in the browser if supported
+            if ('Notification' in window && Notification.permission === 'granted') {
+              new Notification('New support message', {
+                body: `You have ${newUserMessages.length} new message(s) from a client`,
+                icon: '/logo.png'
+              });
+            }
           }
           
           setMessages(data.messages);
