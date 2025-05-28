@@ -27,9 +27,10 @@ function processSubscriptionForRedirect(subscription, transaction, request) {
  */
 export async function GET(request) {
   try {
-    // Get the transaction ID from the URL query parameters
+    // Get the transaction ID and subscription ID from the URL query parameters
     const url = new URL(request.url);
     const txnId = url.searchParams.get('txn_id');
+    const subscriptionIdFromUrl = url.searchParams.get('subscription_id');
     
     if (!txnId) {
       return NextResponse.json(
@@ -37,6 +38,11 @@ export async function GET(request) {
         { status: 400 }
       );
     }
+    
+    console.log(`Processing payment redirect with transaction ID: ${txnId} and subscription ID: ${subscriptionIdFromUrl || 'not provided'}`);
+    
+    // If we don't have a subscription ID in the URL, try to get it from localStorage
+    // This is a server-side function, so we can't access localStorage directly, but we'll use it in the client-side later
     
     console.log(`Processing payment redirect for transaction ID: ${txnId}`);
     
@@ -70,13 +76,23 @@ export async function GET(request) {
     }
     
     const transaction = transactionResults[0];
-    let subscriptionId = transaction.subscription_id;
     
-    // If we found a mapping, use that subscription ID instead
-    if (mappingResults && mappingResults.length) {
+    // Determine which subscription ID to use, prioritizing the URL parameter
+    let subscriptionId;
+    
+    if (subscriptionIdFromUrl) {
+      // If we have a subscription ID directly in the URL, use that as highest priority
+      console.log(`Using subscription ID from URL parameter: ${subscriptionIdFromUrl}`);
+      subscriptionId = subscriptionIdFromUrl;
+    } else if (mappingResults && mappingResults.length) {
+      // If we found a mapping, use that subscription ID as second priority
       const mappedSubscriptionId = mappingResults[0].subscription_id;
-      console.log(`Using mapped subscription ID: ${mappedSubscriptionId} instead of ${subscriptionId}`);
+      console.log(`Using mapped subscription ID: ${mappedSubscriptionId}`);
       subscriptionId = mappedSubscriptionId;
+    } else {
+      // Fall back to the transaction's subscription ID as last resort
+      subscriptionId = transaction.subscription_id;
+      console.log(`Using transaction's subscription ID: ${subscriptionId}`);
     }
     
     console.log(`Looking up subscription details for ID: ${subscriptionId}`);

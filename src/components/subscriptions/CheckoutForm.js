@@ -207,8 +207,12 @@ export default function CheckoutForm() {
         sessionStorage.setItem('subscriptionDetails', JSON.stringify(subscriptionDetails));
         
         try {
-          // Create a dynamic callback URL that includes the transaction ID
-          const callbackUrl = `${window.location.origin}/api/paylink/callback?txn_id=${transactionId}`;
+          // Store the subscription ID in localStorage to help with reconciliation
+          localStorage.setItem('currentSubscriptionId', result.subscriptionId);
+          console.log('Stored subscription ID in localStorage:', result.subscriptionId);
+          
+          // Create a dynamic callback URL that includes the subscription ID and transaction ID
+          const callbackUrl = `${window.location.origin}/api/paylink/callback?txn_id=${transactionId}&subscription_id=${result.subscriptionId}`;
           
           // Create Paylink.sa invoice using our API
           const paylinkResponse = await fetch('/api/paylink/addInvoice', {
