@@ -32,6 +32,15 @@ export async function POST(request) {
       );
     }
     
+    // Validate the subscription ID format
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(subscriptionId)) {
+      console.error(`Invalid subscription ID format: ${subscriptionId}`);
+      return NextResponse.json(
+        { error: 'Invalid subscription ID format' },
+        { status: 400 }
+      );
+    }
+    
     // Log the request for debugging
     console.log('Processing Paylink invoice request:', { subscriptionId, userId });
     

@@ -178,6 +178,41 @@ export async function POST(request) {
     // Verify the payment status with Paylink API
     const invoiceDetails = await getInvoice(invoiceId);
     
+    // Explicitly check if this is a transaction ID in the invoice reference
+    const transactionId = callbackData.transaction_id || '';
+    
+    // Try to extract the subscription ID from the invoice metadata
+    let subscriptionIdFromMetadata = null;
+    if (invoiceDetails && invoiceDetails.metadata) {
+      try {
+        const metadata = typeof invoiceDetails.metadata === 'string' 
+          ? JSON.parse(invoiceDetails.metadata) 
+          : invoiceDetails.metadata;
+          
+        if (metadata && metadata.subscription_id) {
+          subscriptionIdFromMetadata = metadata.subscription_id;
+          console.log(`Found subscription ID in invoice metadata: ${subscriptionIdFromMetadata}`);
+        }
+      } catch (metadataError) {
+        console.error('Error parsing invoice metadata:', metadataError);
+      }
+    }
+    
+    // Also check if the callback URL contains a subscription ID parameter
+    let subscriptionIdFromCallbackUrl = null;
+    if (invoiceDetails && invoiceDetails.callBackUrl) {
+      try {
+        const callbackUrl = new URL(invoiceDetails.callBackUrl);
+        const subscriptionIdParam = callbackUrl.searchParams.get('subscription_id');
+        if (subscriptionIdParam) {
+          subscriptionIdFromCallbackUrl = subscriptionIdParam;
+          console.log(`Found subscription ID in callback URL: ${subscriptionIdFromCallbackUrl}`);
+        }
+      } catch (urlError) {
+        console.error('Error parsing callback URL:', urlError);
+      }
+    }
+    
     // Try to find a transaction that matches this transaction ID using multiple approaches
     // First check in our mapping table for better tracking
     let mappingResults;
@@ -185,7 +220,7 @@ export async function POST(request) {
       mappingResults = await executeQuery(`
         SELECT * FROM subscription_payment_mappings 
         WHERE transaction_id = ? OR paylink_invoice_id = ?
-      `, [callbackData.transaction_id, invoiceId]);
+      `, [transactionId, invoiceId]);
       
       if (mappingResults.length) {
         console.log('Found subscription mapping:', mappingResults[0]);
@@ -199,7 +234,7 @@ export async function POST(request) {
     const transactionResults = await executeQuery(`
       SELECT * FROM payment_transactions 
       WHERE transaction_id = ? OR paylink_reference = ? OR paylink_invoice_id = ?
-    `, [callbackData.transaction_id, callbackData.transaction_id, invoiceId]);
+    `, [transactionId, transactionId, invoiceId]);
     
     if (!transactionResults.length) {
       console.error(`No transaction found for ID: ${callbackData.transaction_id}`);
@@ -216,7 +251,28 @@ export async function POST(request) {
     console.log('Transaction data found:', transactionResults[0]);
     
     const transaction = transactionResults[0];
-    const subscriptionId = transaction.subscription_id;
+    
+    // Determine which subscription ID to use, prioritizing several sources
+    let subscriptionId;
+    
+    if (subscriptionIdFromCallbackUrl) {
+      // 1. First priority: subscription ID from callback URL parameter
+      subscriptionId = subscriptionIdFromCallbackUrl;
+      console.log(`Using subscription ID from callback URL: ${subscriptionId}`);
+    } else if (subscriptionIdFromMetadata) {
+      // 2. Second priority: subscription ID from invoice metadata
+      subscriptionId = subscriptionIdFromMetadata;
+      console.log(`Using subscription ID from invoice metadata: ${subscriptionId}`);
+    } else if (mappingResults && mappingResults.length) {
+      // 3. Third priority: subscription ID from mapping table
+      subscriptionId = mappingResults[0].subscription_id;
+      console.log(`Using subscription ID from mapping table: ${subscriptionId}`);
+    } else {
+      // 4. Last resort: subscription ID from transaction
+      subscriptionId = transaction.subscription_id;
+      console.log(`Using subscription ID from transaction: ${subscriptionId}`);
+    }
+    
     const userId = transaction.user_id;
     
     // Determine the payment status based on Paylink's response
@@ -235,34 +291,48 @@ export async function POST(request) {
           WHERE paylink_invoice_id = ?
         `, [paymentStatus, JSON.stringify(invoiceDetails), invoiceId]);
         
-        // Get subscription details, try the mapping table first if available
-        let targetSubscriptionId = subscriptionId;
+        // Try multiple methods to find the subscription
+        let subscriptionResults = [];
         
-        // If we found a mapping earlier, use that subscription ID
-        if (mappingResults && mappingResults.length) {
-          targetSubscriptionId = mappingResults[0].subscription_id;
-          console.log(`Using mapped subscription ID: ${targetSubscriptionId} instead of ${subscriptionId}`);
-        }
-        
-        // Now get the subscription with the appropriate ID
-        const subscriptionResults = await executeQuery(`
+        // Try to find subscription with the determined ID first
+        console.log(`Looking for subscription with ID: ${subscriptionId}`);
+        let initialSubscriptionResults = await executeQuery(`
           SELECT * FROM subscriptions 
           WHERE id = ?
-          `, [targetSubscriptionId]);
-
-        if (!subscriptionResults.length) {
-          console.error(`Subscription not found with ID: ${targetSubscriptionId}`);
-          // Try a fallback query
-          const fallbackResults = await executeQuery(`
+        `, [subscriptionId]);
+        
+        if (initialSubscriptionResults.length) {
+          console.log(`Found subscription with ID: ${subscriptionId}`);
+          subscriptionResults = initialSubscriptionResults;
+        } else {
+          // Try to find by transaction ID
+          console.log(`Subscription not found with ID: ${subscriptionId}, trying by transaction ID: ${transactionId}`);
+          const txnSubscriptionResults = await executeQuery(`
             SELECT * FROM subscriptions 
             WHERE transaction_id = ?
-            `, [transaction.transaction_id]);
+          `, [transactionId]);
+          
+          if (txnSubscriptionResults.length) {
+            console.log(`Found subscription with transaction_id: ${transactionId}`);
+            subscriptionResults = txnSubscriptionResults;
+          } else if (userId) {
+            // Last resort: try to find the most recent subscription for this user
+            console.log(`Subscription not found with ID or transaction ID, trying by user ID: ${userId}`);
+            const userSubscriptionResults = await executeQuery(`
+              SELECT * FROM subscriptions 
+              WHERE user_id = ? 
+              ORDER BY created_at DESC 
+              LIMIT 1
+            `, [userId]);
             
-          if (fallbackResults.length) {
-            console.log(`Found subscription with transaction_id: ${transaction.transaction_id}`);
-            subscriptionResults.push(fallbackResults[0]);
+            if (userSubscriptionResults.length) {
+              console.log(`Found subscription for user ID: ${userId}`);
+              subscriptionResults = userSubscriptionResults;
+            } else {
+              throw new Error(`Cannot find any subscription for this payment. Tried ID: ${subscriptionId}, transaction ID: ${transactionId}, and user ID: ${userId}`);
+            }
           } else {
-            throw new Error(`Subscription not found with ID: ${targetSubscriptionId} or transaction_id: ${transaction.transaction_id}`);
+            throw new Error(`Cannot find any subscription for this payment. Tried ID: ${subscriptionId} and transaction ID: ${transactionId}`);
           }
         }
         
