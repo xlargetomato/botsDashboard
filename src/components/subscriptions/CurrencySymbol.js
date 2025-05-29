@@ -15,7 +15,7 @@ export default function CurrencySymbol({ className = '', showText = false }) {
         alt="Saudi Riyal" 
         width={16} 
         height={16} 
-        className={isRtl ? 'mr-1' : 'ml-1'}
+        className={`${isRtl ? 'mr-1' : 'ml-1'} dark:invert dark:brightness-200 dark:hue-rotate-180`}
       />
       {showText && <span className="text-xs">{isRtl ? 'ريال' : 'SAR'}</span>}
     </span>
