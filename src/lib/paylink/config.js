@@ -55,6 +55,23 @@ const PAYLINK_CONFIG = {
     INVOICES: '/api/addInvoice',
     GET_INVOICE: '/api/getInvoice',
     
+    // Customer endpoints
+    CUSTOMERS: '/api/customers',
+    
+    // Webhook endpoints
+    WEBHOOKS: '/api/webhooks',
+    
+    // Order endpoints
+    ORDERS: '/api/orders',
+    
+    // Product endpoints
+    PRODUCTS: '/api/products',
+    
+    // Transaction endpoints
+    TRANSACTIONS: '/api/transactions',
+    COMPLETE_AUTHENTICATION: '/api/auth/completeAuthentication', // Specific 3DS completion endpoint
+    ALT_COMPLETE_AUTHENTICATION: '/rest/pay/ACSRedirection', // Alternative 3DS authentication endpoint
+    
     // Other endpoints
     PAYMENT_METHODS: '/api/getPaymentMethods',
     PAYMENT_GATEWAYS: '/api/getPaymentGateways'
@@ -72,8 +89,46 @@ const PAYLINK_CONFIG = {
       return `${process.env.NGROK_URL}/api/paylink/callback`;
     }
     
-    // 3. Fallback to localhost (will be overridden at runtime with proper origin)
+    // 3. Use APP_URL if available
+    if (process.env.NEXT_PUBLIC_APP_URL) {
+      return `${process.env.NEXT_PUBLIC_APP_URL}/api/paylink/callback`;
+    }
+
+    // 4. Try to auto-detect URL if in browser environment
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin;
+      return `${origin}/api/paylink/callback`;
+    }
+    
+    // 5. Fallback to localhost (will be overridden at runtime with proper origin)
     return 'http://localhost:3000/api/paylink/callback';
+  })(),
+  
+  // 3D Secure callback URL - critical for completing 3DS authentication
+  DEFAULT_3DS_CALLBACK_URL: (() => {
+    // 1. Use explicitly configured 3DS callback URL if available
+    if (process.env.PAYLINK_3DS_CALLBACK_URL) {
+      return process.env.PAYLINK_3DS_CALLBACK_URL;
+    }
+    
+    // 2. Use NGROK URL if available
+    if (process.env.NGROK_URL) {
+      return `${process.env.NGROK_URL}/api/paylink/3ds-callback`;
+    }
+    
+    // 3. Use APP_URL if available
+    if (process.env.NEXT_PUBLIC_APP_URL) {
+      return `${process.env.NEXT_PUBLIC_APP_URL}/api/paylink/3ds-callback`;
+    }
+
+    // 4. Try to auto-detect URL if in browser environment
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin;
+      return `${origin}/api/paylink/3ds-callback`;
+    }
+    
+    // 5. Fallback to localhost (will be overridden at runtime with proper origin)
+    return 'http://localhost:3000/api/paylink/3ds-callback';
   })(),
   
   // Default currency

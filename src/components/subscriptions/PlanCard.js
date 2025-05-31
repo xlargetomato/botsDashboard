@@ -93,7 +93,7 @@ const PlanCard = ({
         </button>
       </div>
       
-      <div className="features-section mt-auto bg-gray-50 dark:bg-gray-850 p-6">
+      <div className="features-section mt-auto bg-gray-50 dark:bg-gray-900 p-6">
         <h4 className="font-semibold text-gray-700 dark:text-gray-200 mb-4 font-sans cairo-font">
           {language === 'ar' ? 'المميزات' : 'Features'}
         </h4>

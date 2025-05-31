@@ -24,6 +24,7 @@ const FixedCheckout = (props) => {
   const [subscriptionType, setSubscriptionType] = useState(props.subscriptionType || 'monthly'); // 'weekly', 'monthly', 'yearly'
   const [preSelectedPlan, setPreSelectedPlan] = useState(props.preSelectedPlan || null);
   const [showAllPlans, setShowAllPlans] = useState(true); // Show all plans by default
+  const [message, setMessage] = useState(null);
 
   // Get the full URL including ngrok domain if available
   const getOrigin = () => {
@@ -35,9 +36,12 @@ const FixedCheckout = (props) => {
   
   // Update subscription type and adjust prices accordingly
   const updateSubscriptionType = (newType) => {
-    setSubscriptionType(newType);
+    // Only proceed if this is actually a different type
+    if (newType === subscriptionType) return;
     
-    // Update prices for all plans based on new subscription type
+    console.log(`Updating subscription type from ${subscriptionType} to ${newType}`);
+    
+    // Immediately calculate new prices for all plans based on the new type
     const updatedPlans = plans.map(plan => {
       let price;
       switch(newType) {
@@ -59,7 +63,25 @@ const FixedCheckout = (props) => {
       };
     });
     
-    setPlans(updatedPlans);
+    // Batch state updates to prevent multiple re-renders
+    const batchedUpdate = () => {
+      // First update subscription type
+      setSubscriptionType(newType);
+      
+      // Then update plans with new prices
+      setPlans(updatedPlans);
+      
+      // Update selected plan if one exists
+      if (selectedPlan) {
+        const updatedSelectedPlan = updatedPlans.find(p => p.id === selectedPlan.id);
+        if (updatedSelectedPlan) {
+          setSelectedPlan(updatedSelectedPlan);
+        }
+      }
+    };
+    
+    // Execute all updates in one go
+    batchedUpdate();
   };
   
   // Toggle language between English and Arabic
@@ -72,9 +94,13 @@ const FixedCheckout = (props) => {
   const checkTransactionStatus = useCallback(async (transactionData) => {
     if (!transactionData) return null;
     
-    const { transaction_id, payment_intent_id, invoice_id } = transactionData;
+    const { transaction_id, payment_intent_id, invoice_id, subscription_id, orderNumber, transactionNo } = transactionData;
     
-    if (!transaction_id && !payment_intent_id && !invoice_id) {
+    // Log all available transaction data for debugging
+    console.log('Transaction data for status check:', transactionData);
+    
+    // Check if we have at least one identifier to work with
+    if (!transaction_id && !payment_intent_id && !invoice_id && !subscription_id && !orderNumber && !transactionNo) {
       console.error('No transaction identifiers provided');
       return 'error';
     }
@@ -107,13 +133,20 @@ const FixedCheckout = (props) => {
       if (transaction_id) queryParams.append('txn_id', transaction_id);
       if (payment_intent_id) queryParams.append('payment_intent_id', payment_intent_id);
       if (invoice_id) queryParams.append('invoice_id', invoice_id);
+      // Add subscription_id to query params if available
+      if (transactionData.subscription_id) queryParams.append('subscription_id', transactionData.subscription_id);
+      // Add additional transaction identifiers if available
+      if (transactionData.orderNumber) queryParams.append('orderNumber', transactionData.orderNumber);
+      if (transactionData.transactionNo) queryParams.append('transactionNo', transactionData.transactionNo);
       
       // Make the API call to check transaction status
       const apiUrl = `${apiBase}/api/subscriptions/transaction-status?${queryParams.toString()}`;
       const result = await tryFetchStatus(apiUrl);
       
-      // If 404 error (transaction not found), try an alternative approach
-      if (!result.ok && result.status === 404 && subscriptionId) {
+      // If error or empty result, try an alternative approach with subscription ID
+      if ((!result.ok || !result.data) && transactionData.subscription_id) {
+        const subscriptionId = transactionData.subscription_id;
+        console.log(`Trying alternative approach with subscription ID: ${subscriptionId}`);
         // Try checking subscription status directly
         const fallbackUrl = `${apiBase}/api/subscriptions/user?id=${encodeURIComponent(subscriptionId)}`;
         const fallbackResult = await tryFetchStatus(fallbackUrl);
@@ -142,16 +175,51 @@ const FixedCheckout = (props) => {
       if (result.ok && result.data) {
         console.log('Transaction status response:', result.data);
         
-        if (result.data.status === 'completed') {
+        if (result.data.status === 'completed' || result.data.status === 'success' || result.data.status === 'paid') {
           // Transaction was successful, clear stored transaction
           sessionStorage.removeItem('paylink_transaction');
           return 'completed';
         }
         
+        // Create payment - handle all possible success cases
+        if (result.success && result.data && (result.data.url || result.data.checkoutUrl || result.data.redirectUrl)) {
+          // Get the payment URL from the response
+          const paymentUrl = result.data.url || result.data.checkoutUrl || result.data.redirectUrl;
+          
+          // Store invoice ID and transaction details in session storage for verification after redirect
+          if (result.data.invoiceId || result.data.id) {
+            sessionStorage.setItem('paylink_invoice_id', result.data.invoiceId || result.data.id);
+          }
+          
+          if (result.data.transactionNo) {
+            sessionStorage.setItem('paylink_transaction_no', result.data.transactionNo);
+          }
+          
+          if (result.data.orderNumber) {
+            sessionStorage.setItem('paylink_order_number', result.data.orderNumber);
+          }
+          
+          // Store the timestamp for verification
+          sessionStorage.setItem('paylink_redirect_time', Date.now().toString());
+          
+          // Navigate to payment URL
+          if (paymentUrl) {
+            console.log(`Redirecting to payment gateway: ${paymentUrl}`);
+            window.location.href = paymentUrl;
+            return;
+          }
+        }
+        
         return result.data.status || 'unknown';
       }
       
+      // Never assume success based on URL parameters alone - they can be manipulated
+      // Always rely on the server's verification with Paylink API
+      console.log('Could not verify transaction status through regular means');
+      return 'error';
+      
       // If we reach here, something went wrong with both requests
+      console.error('All verification attempts failed');
       return 'error';
     } catch (err) {
       console.error('Error checking transaction status:', err);
@@ -230,13 +298,20 @@ const FixedCheckout = (props) => {
     }
   };
   
-  // Verify payment status with server and handle redirection
-  const verifyPaymentStatus = useCallback(async (transactionData) => {
+  // Function to verify payment status with the server
+  // Using useCallback to prevent recreation on every render and avoid infinite loops
+  const verifyPaymentStatus = useCallback(async (transaction, autoVerify = false) => {
+    const showProcessingMessage = autoVerify;
     setLoading(true);
-    setMessage({
-      type: 'processing',
-      content: 'Verifying your payment status...'
-    });
+    
+    // Only show the processing message if explicitly requested
+    // This prevents showing the message when just checking status without user action
+    if (showProcessingMessage) {
+      setMessage({
+        type: 'processing',
+        content: 'Verifying your payment status...'
+      });
+    }
     
     try {
       console.log('Verifying payment status with data:', transactionData);
@@ -311,95 +386,131 @@ const FixedCheckout = (props) => {
     } finally {
       setLoading(false);
     }
-  }, [checkTransactionStatus, router]);
-
-  // Check for payment result on component mount (e.g., when redirected back from Paylink)
+  }, [router, setMessage, checkTransactionStatus]);
   
   // Handle payment verification after redirects from Paylink
   useEffect(() => {
+    // Only run this effect on client-side
     if (typeof window === 'undefined') return;
     
-    // Get URL parameters from the payment redirect
     const urlParams = new URLSearchParams(window.location.search);
+    
+    // First, check if we have 3D Secure authentication parameters (PaRes and MD)
+    // These come from the ACS emulator after 3D Secure authentication
+    const paRes = urlParams.get('PaRes');
+    const md = urlParams.get('MD');
+    
+    // If we have 3D Secure parameters, we need to complete the authentication
+    if (paRes && md) {
+      console.log('Detected 3D Secure authentication callback');
+      
+      // Show processing message
+      setMessage({
+        type: 'processing',
+        content: 'Completing payment authentication...'
+      });
+      
+      // CRITICAL: Also pass along any transaction identifiers
+      const txnId = urlParams.get('txn_id');
+      const orderNumber = urlParams.get('orderNumber');
+      const transactionNo = urlParams.get('transactionNo');
+      
+      // Save these identifiers to session storage for later retrieval
+      if (txnId) sessionStorage.setItem('paymentTransactionId', txnId);
+      if (orderNumber) sessionStorage.setItem('paymentOrderNumber', orderNumber);
+      if (transactionNo) sessionStorage.setItem('paymentTransactionNo', transactionNo);
+      
+      // Redirect to our 3DS callback handler which will process the authentication
+      // Base64 encode PaRes to prevent any character encoding issues
+      let redirectUrl = `/api/paylink/3ds-callback?PaRes=${encodeURIComponent(btoa(paRes))}&MD=${encodeURIComponent(md)}`;
+      
+      // Add other transaction identifiers if available
+      if (txnId) redirectUrl += `&txn_id=${encodeURIComponent(txnId)}`;
+      if (orderNumber) redirectUrl += `&orderNumber=${encodeURIComponent(orderNumber)}`;
+      if (transactionNo) redirectUrl += `&transactionNo=${encodeURIComponent(transactionNo)}`;
+      
+      window.location.href = redirectUrl;
+      return;
+    }
+    
+    // Get URL parameters from the payment redirect
     const paymentStatus = urlParams.get('status');
     const txnId = urlParams.get('txn_id');
     const invoiceId = urlParams.get('invoice_id');
+    const subscriptionId = urlParams.get('subscription_id');
+    const orderNumber = urlParams.get('orderNumber');
+    const transactionNo = urlParams.get('transactionNo');
     
-    // If we have URL parameters from a redirect, handle them
-    if (paymentStatus || txnId || invoiceId) {
-      console.log(`Redirected from payment gateway with: status=${paymentStatus}, txn_id=${txnId}, invoice_id=${invoiceId}`);
+    // Also retrieve stored payment data from session storage
+    const storedInvoiceId = sessionStorage.getItem('paylink_invoice_id');
+    const storedTransactionNo = sessionStorage.getItem('paylink_transaction_no');
+    const storedOrderNumber = sessionStorage.getItem('paylink_order_number');
+    
+    console.log('URL Parameters:', { 
+      status: paymentStatus, 
+      txn_id: txnId, 
+      invoice_id: invoiceId, 
+      subscription_id: subscriptionId,
+      orderNumber,
+      transactionNo
+    });
+    
+    console.log('Stored Payment Data:', {
+      invoice_id: storedInvoiceId,
+      transactionNo: storedTransactionNo,
+      orderNumber: storedOrderNumber
+    });
+    
+    // Combine URL parameters and stored data for verification
+    const finalInvoiceId = invoiceId || storedInvoiceId;
+    const finalTransactionNo = transactionNo || storedTransactionNo;
+    const finalOrderNumber = orderNumber || storedOrderNumber;
+    
+    // Only process payment status if we have explicit URL parameters from a redirect
+    // or if we have stored payment data from a recent redirect
+    if ((paymentStatus && (txnId || finalInvoiceId)) || finalInvoiceId) {
+      console.log(`Processing payment verification with: invoice_id=${finalInvoiceId}, transactionNo=${finalTransactionNo}`);
       
-      // Handle successful payment
+      // This only controls what message to show initially before verification
+      // The actual status will be determined by the API call to verify with Paylink
       if (paymentStatus === 'completed' || paymentStatus === 'success' || paymentStatus === 'paid') {
+        console.log('URL indicates success, verifying with server...');
         setMessage({
           type: 'success',
           content: 'Payment successful! Verifying your subscription...'
         });
-        
-        verifyPaymentStatus({
-          transaction_id: txnId,
-          invoice_id: invoiceId
-        });
-      } 
-      // Handle pending payment
-      else if (paymentStatus === 'pending' || paymentStatus === 'processing') {
+      } else {
+        // Show processing message for all other cases until we verify
         setMessage({
           type: 'processing',
-          content: 'Your payment is being processed. This may take a moment.'
+          content: 'Verifying your payment status...'
         });
-        
-        const paymentData = {
-          transaction_id: txnId,
-          invoice_id: invoiceId
-        };
-        
-        // Start checking status periodically
-        let checkCount = 0;
-        const maxChecks = 5;
-        const checkInterval = setInterval(() => {
-          checkCount++;
-          console.log(`Checking payment status (${checkCount}/${maxChecks})`);
-          verifyPaymentStatus(paymentData);
-          
-          if (checkCount >= maxChecks) {
-            clearInterval(checkInterval);
-          }
-        }, 5000);
-        
-        // Safety timeout
-        setTimeout(() => clearInterval(checkInterval), 120000);
-      } 
-      // Handle failed payment
-      else if (paymentStatus === 'failed' || paymentStatus === 'cancelled' || paymentStatus === 'expired') {
-        setError(`Payment ${paymentStatus}. Please try again or contact support.`);
       }
-      return;
+      
+      // Combine all available transaction identifiers for verification
+      const transaction = {
+        transaction_id: txnId,
+        invoice_id: finalInvoiceId,
+        subscription_id: subscriptionId,
+        orderNumber: finalOrderNumber,
+        transactionNo: finalTransactionNo
+      };
+      
+      // Always verify with the server regardless of URL parameters
+      verifyPaymentStatus(transaction, true);
+      
+      // Clear stored payment data after verification
+      sessionStorage.removeItem('paylink_invoice_id');
+      sessionStorage.removeItem('paylink_transaction_no');
+      sessionStorage.removeItem('paylink_order_number');
+      sessionStorage.removeItem('paylink_redirect_time');
     }
     
-    // If no URL params, check sessionStorage for stored transaction
-    const storedTransaction = sessionStorage.getItem('paylink_transaction');
-    if (!storedTransaction) return;
-    
-    try {
-      const transaction = JSON.parse(storedTransaction);
-      console.log('Found stored transaction:', transaction);
-      
-      // Only verify recent transactions (< 1 hour old)
-      const timestamp = new Date(transaction.timestamp || 0);
-      const now = new Date();
-      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-      
-      if (timestamp > oneHourAgo) {
-        verifyPaymentStatus(transaction);
-      } else {
-        console.log('Transaction is too old, removing');
-        sessionStorage.removeItem('paylink_transaction');
-      }
-    } catch (error) {
-      console.error('Error parsing stored transaction:', error);
-      sessionStorage.removeItem('paylink_transaction');
-    }
-  }, [verifyPaymentStatus]);
+    // Do not automatically check stored transactions on component mount
+    // This prevents the payment processing message from appearing when just selecting a plan
+    // The stored transaction will only be checked when explicitly triggered by user action
+    // or when there are explicit URL parameters from a payment gateway redirect
+  }, [verifyPaymentStatus, setMessage]);
 
   // Fetch subscription plans from the API
   useEffect(() => {
@@ -546,7 +657,40 @@ const FixedCheckout = (props) => {
     fetchPlans();
     fetchUserData();
     checkPaylinkConfig();
-  }, [props.plan, props.subscriptionType, router, subscriptionType, preSelectedPlan]);
+  }, [props.plan, props.subscriptionType, router, preSelectedPlan, subscriptionType]); // Added subscriptionType to dependencies for ESLint
+
+  // Render message component
+  const renderMessage = () => {
+    if (!message) return null;
+    const { type, content } = message;
+    let icon = null;
+    let bgColor = '';
+    let textColor = '';
+
+    switch (type) {
+      case 'success':
+        icon = <FaCheckCircle className="text-green-500" size={24} />;
+        bgColor = 'bg-green-50 border-green-100 text-green-700';
+        break;
+      case 'error':
+        icon = <FaExclamationTriangle className="text-red-500" size={24} />;
+        bgColor = 'bg-red-50 border-red-100 text-red-700';
+        break;
+      case 'processing':
+        icon = <FaSpinner className="text-blue-500 animate-spin" size={24} />;
+        bgColor = 'bg-blue-50 border-blue-100 text-blue-700';
+        break;
+      default:
+        bgColor = 'bg-gray-50 border-gray-100 text-gray-700';
+    }
+
+    return (
+      <div className={`p-4 ${bgColor} border rounded-lg flex items-center mb-6`}>
+        {icon && <div className="mr-3">{icon}</div>}
+        <div>{content}</div>
+      </div>
+    );
+  };
 
   // Handle loading state
   if (loading) {
@@ -603,49 +747,55 @@ const FixedCheckout = (props) => {
   };
 
   return (
-    <div className={`checkout-container ${isRtl ? 'rtl' : 'ltr'} ${theme === 'dark' ? 'dark' : 'light'}`}>
-      <div className="subscription-period-selector mb-6">
-        <h3 className="text-lg font-semibold mb-3 text-gray-800 dark:text-white font-sans cairo-font">
-          {t('Subscription Period')}
-        </h3>
-        
-        <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
-          <button
-            onClick={() => updateSubscriptionType('weekly')}
-            className={`flex-1 py-2 px-4 rounded-md transition-all font-sans cairo-font ${
-              subscriptionType === 'weekly' 
-                ? 'bg-blue-600 text-white shadow-sm' 
-                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-            }`}
-          >
-            {isRtl ? 'أسبوعي' : 'Weekly'}
-          </button>
-          
-          <button
-            onClick={() => updateSubscriptionType('monthly')}
-            className={`flex-1 py-2 px-4 rounded-md transition-all font-sans cairo-font ${
-              subscriptionType === 'monthly' 
-                ? 'bg-blue-600 text-white shadow-sm' 
-                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-            }`}
-          >
-            {isRtl ? 'شهري' : 'Monthly'}
-          </button>
-          
-          <button
-            onClick={() => updateSubscriptionType('yearly')}
-            className={`flex-1 py-2 px-4 rounded-md transition-all font-sans cairo-font ${
-              subscriptionType === 'yearly' 
-                ? 'bg-blue-600 text-white shadow-sm' 
-                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-            }`}
-          >
-            {isRtl ? 'سنوي' : 'Yearly'}
-          </button>
-        </div>
+    <div>
+      {renderMessage()}
+      <div className={`checkout-container ${isRtl ? 'rtl' : 'ltr'} ${theme === 'dark' ? 'dark' : 'light'}`}>
+        <EnhancedCheckoutForm 
+          {...enhancedProps} 
+          renderPeriodSelector={() => (
+            <div className="subscription-period-selector mb-6">
+              <h3 className="text-lg font-semibold mb-3 text-gray-800 dark:text-white font-sans cairo-font">
+                {t('Subscription Period')}
+              </h3>
+              
+              <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
+                <button
+                  onClick={() => updateSubscriptionType('weekly')}
+                  className={`flex-1 py-2 px-4 rounded-md transition-all font-sans cairo-font ${
+                    subscriptionType === 'weekly' 
+                      ? 'bg-blue-600 text-white shadow-sm' 
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {isRtl ? 'أسبوعي' : 'Weekly'}
+                </button>
+                
+                <button
+                  onClick={() => updateSubscriptionType('monthly')}
+                  className={`flex-1 py-2 px-4 rounded-md transition-all font-sans cairo-font ${
+                    subscriptionType === 'monthly' 
+                      ? 'bg-blue-600 text-white shadow-sm' 
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {isRtl ? 'شهري' : 'Monthly'}
+                </button>
+                
+                <button
+                  onClick={() => updateSubscriptionType('yearly')}
+                  className={`flex-1 py-2 px-4 rounded-md transition-all font-sans cairo-font ${
+                    subscriptionType === 'yearly' 
+                      ? 'bg-blue-600 text-white shadow-sm' 
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {isRtl ? 'سنوي' : 'Yearly'}
+                </button>
+              </div>
+            </div>
+          )}
+        />
       </div>
-      
-      <EnhancedCheckoutForm {...enhancedProps} />
     </div>
   );
 };

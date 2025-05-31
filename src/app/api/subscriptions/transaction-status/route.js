@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db/config';
-import { getInvoice } from '@/lib/paylink/api';
+import { getInvoice, getTransactionByNumber } from '@/lib/paylink/api';
 import { validateConfig } from '@/lib/paylink/service';
 
 // Helper function to safely execute database queries with error handling
@@ -94,44 +94,159 @@ export async function GET(request) {
   };
   
   try {
-    // Get transaction ID, payment intent ID, and invoice ID from query parameters
+    // Get transaction ID, payment intent ID, invoice ID, and subscription ID from query parameters
     const url = new URL(request.url);
     const txnId = url.searchParams.get('txn_id');
     const paymentIntentId = url.searchParams.get('payment_intent_id');
     const invoiceId = url.searchParams.get('invoice_id');
+    const subscriptionId = url.searchParams.get('subscription_id');
+    const orderNumber = url.searchParams.get('orderNumber');
+    const transactionNo = url.searchParams.get('transactionNo');
     
     // Record these in response data
     responseData.transactionId = txnId || null;
     responseData.paymentIntentId = paymentIntentId || null;
     responseData.invoiceId = invoiceId || null;
+    responseData.subscriptionId = subscriptionId || null;
+    responseData.orderNumber = orderNumber || null;
+    responseData.transactionNo = transactionNo || null;
     
-    if (!txnId && !paymentIntentId && !invoiceId) {
-      responseData.message = 'Missing transaction ID, payment intent ID, or invoice ID';
+    if (!txnId && !paymentIntentId && !invoiceId && !subscriptionId && !orderNumber && !transactionNo) {
+      responseData.message = 'Missing transaction ID, payment intent ID, invoice ID, subscription ID, or other transaction identifiers';
       return NextResponse.json(responseData, { status: 400 });
     }
     
-    console.log(`Checking transaction status for txn_id: ${txnId}, payment_intent_id: ${paymentIntentId}, invoice_id: ${invoiceId}`);
+    // Don't run Paylink verification yet - we'll do that in the main flow
+    // This just prepares variables and logs input parameters
+    
+    console.log(`Checking transaction status for txn_id: ${txnId}, payment_intent_id: ${paymentIntentId}, invoice_id: ${invoiceId}, subscription_id: ${subscriptionId}, orderNumber: ${orderNumber}, transactionNo: ${transactionNo}`);
+    
+    // First, try to find the transaction in our database using all available identifiers
+    let dbTransaction = null;
+    
+    try {
+      // Build query to find transaction by any of the available identifiers
+      let query = `
+        SELECT * FROM payment_transactions 
+        WHERE 1=0
+      `;
+      const params = [];
+      
+      // Add conditions for each identifier we have
+      if (txnId) {
+        query += ` OR transaction_id = ?`;
+        params.push(txnId);
+      }
+      
+      if (invoiceId) {
+        query += ` OR paylink_invoice_id = ?`;
+        params.push(invoiceId);
+      }
+      
+      if (transactionNo) {
+        query += ` OR paylink_reference = ? OR transaction_no = ?`;
+        params.push(transactionNo, transactionNo);
+      }
+      
+      if (orderNumber) {
+        query += ` OR order_number = ?`;
+        params.push(orderNumber);
+      }
+      
+      query += ` ORDER BY created_at DESC LIMIT 1`;
+      
+      // Execute the query
+      const results = await executeQuery(query, params);
+      
+      if (results && results.length > 0) {
+        dbTransaction = results[0];
+        console.log(`Found transaction in database:`, dbTransaction);
+        
+        // Update response with transaction data
+        responseData.transaction = {
+          id: dbTransaction.id,
+          status: dbTransaction.status,
+          created_at: dbTransaction.created_at
+        };
+        
+        // If we found a transaction, use its invoice_id for Paylink verification
+        if (dbTransaction.paylink_invoice_id && !invoiceId) {
+          invoiceId = dbTransaction.paylink_invoice_id;
+          console.log(`Using transaction's paylink_invoice_id for verification: ${invoiceId}`);
+        }
+        
+        // Also use transaction number for verification if available
+        if (dbTransaction.transaction_no && !transactionNo) {
+          transactionNo = dbTransaction.transaction_no;
+          console.log(`Using transaction's transaction_no for verification: ${transactionNo}`);
+        }
+      } else {
+        console.log(`No transaction found in database with provided identifiers`);
+      }
+    } catch (dbError) {
+      console.error('Error querying transaction from database:', dbError);
+    }
     
     // Check if we need to verify with Paylink API
     let paylinkVerified = false;
     let paylinkStatus = null;
     
-    // If we have an invoice ID, verify the payment status with Paylink directly
-    if (invoiceId) {
+    // Verify with Paylink API if we have an invoice_id or transactionNo
+    if (invoiceId || transactionNo) {
       try {
         // Verify Paylink configuration
         const configStatus = validateConfig();
         if (configStatus.isValid) {
-          // Get invoice details from Paylink with error handling
-          const invoiceDetails = await getInvoice(invoiceId);
+          let paymentDetails = null;
           
-          // Make sure we have valid data before proceeding
-          if (invoiceDetails && invoiceDetails.data) {
-            paylinkStatus = invoiceDetails.data.status?.toLowerCase() || '';
-            console.log(`Paylink status for invoice ${invoiceId}: ${paylinkStatus}`);
+          // Try to verify by transaction number first (more reliable method)
+          if (transactionNo) {
+            console.log(`Verifying payment with transactionNo: ${transactionNo}`);
+            const transactionDetails = await getTransactionByNumber(transactionNo);
             
-            // Check if payment is completed
-            if (paylinkStatus === 'paid' || paylinkStatus === 'completed') {
+            if (transactionDetails && transactionDetails.data) {
+              paymentDetails = transactionDetails.data;
+              paylinkStatus = paymentDetails.status?.toLowerCase() || '';
+              console.log(`Paylink status for transaction ${transactionNo}: ${paylinkStatus}`);
+              console.log(`Raw Paylink transaction response:`, JSON.stringify(transactionDetails, null, 2));
+            } else {
+              console.log(`No transaction found with transactionNo: ${transactionNo}`);
+            }
+          }
+          
+          // If transaction verification failed or we don't have a transaction number, try invoice ID
+          if (!paymentDetails && invoiceId) {
+            console.log(`Verifying payment with invoiceId: ${invoiceId}`);
+            const invoiceDetails = await getInvoice(invoiceId);
+            
+            if (invoiceDetails && invoiceDetails.data) {
+              paymentDetails = invoiceDetails.data;
+              paylinkStatus = paymentDetails.status?.toLowerCase() || '';
+              console.log(`Paylink status for invoice ${invoiceId}: ${paylinkStatus}`);
+              console.log(`Raw Paylink invoice response:`, JSON.stringify(invoiceDetails, null, 2));
+            } else {
+              console.log(`No invoice found with invoiceId: ${invoiceId}`);
+            }
+          }
+          
+          // If we have payment details from either method, process them
+          if (paymentDetails) {
+            // For debugging - extract and log full payment details
+            console.log(`Paylink payment details:`, {
+              status: paymentDetails.status,
+              amount: paymentDetails.amount,
+              currency: paymentDetails.currency,
+              reference: paymentDetails.reference,
+              createdDate: paymentDetails.createdDate,
+              paidDate: paymentDetails.paidDate,
+              transactionNo: paymentDetails.transactionNo,
+              invoiceId: paymentDetails.id || paymentDetails.invoiceId
+            });
+            
+            // IMPORTANT: Check the ACTUAL payment status from Paylink
+            // Only consider it paid if Paylink explicitly says it's paid
+            // Do NOT trust URL parameters from the redirect as they can be manipulated
+            if ((paylinkStatus === 'paid' || paylinkStatus === 'completed') && paymentDetails.paidDate) {
               paylinkVerified = true;
               responseData.status = 'completed';
               responseData.paylinkStatus = paylinkStatus;
@@ -273,6 +388,7 @@ export async function GET(request) {
       // Instead of immediately returning 404, check if we have a subscription ID
       // and try to find the subscription directly
       if (subscriptionId) {
+        console.log(`Transaction not found in database, checking subscription directly with ID: ${subscriptionId}`);
         try {
           const subscriptionResults = await safeQuery(async () => {
             return executeQuery(`

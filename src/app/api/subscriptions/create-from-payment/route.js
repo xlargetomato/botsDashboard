@@ -59,7 +59,20 @@ export async function POST(request) {
         if (invoiceDetails && invoiceDetails.data) {
           paylinkData = invoiceDetails.data;
           paylinkStatus = invoiceDetails.data.status?.toLowerCase() || 'unknown';
-          paylinkVerified = paylinkStatus === 'paid' || paylinkStatus === 'completed';
+          
+          // Log detailed payment information for debugging
+          console.log('Paylink verification details:', {
+            invoiceId,
+            status: paylinkStatus,
+            amount: paylinkData.amount,
+            paidDate: paylinkData.paidDate,
+            transactionNo: paylinkData.transactionNo
+          });
+          
+          // Only consider it verified if both status is paid/completed AND we have a paidDate
+          paylinkVerified = (paylinkStatus === 'paid' || paylinkStatus === 'completed') && 
+                            paylinkData.paidDate && 
+                            paylinkData.transactionNo;
           
           if (!paylinkVerified) {
             return NextResponse.json(

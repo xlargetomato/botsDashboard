@@ -66,11 +66,36 @@ export async function createInvoice(invoiceData) {
       validatedData.currency = PAYLINK_CONFIG.CURRENCY;
     }
     
-    // Fix callback URL format if provided
+    // CRITICAL: Always set callback URLs for proper 3D Secure handling
+    // Main callback URL
+    validatedData.callBackUrl = PAYLINK_CONFIG.DEFAULT_CALLBACK_URL;
+    
+    // 3D Secure callback URL - critical for completing the authentication
+    validatedData.threeDSCallBackUrl = PAYLINK_CONFIG.DEFAULT_3DS_CALLBACK_URL;
+    
+    // Return URL for when 3D Secure is completed
+    validatedData.returnUrl = PAYLINK_CONFIG.DEFAULT_3DS_CALLBACK_URL;
+    
+    // Fix callback URL format if needed
     if (validatedData.callBackUrl) {
       // Fix any double slashes that aren't part of the protocol
       validatedData.callBackUrl = validatedData.callBackUrl.replace(/([^:])\/{2,}/g, '$1/');
     }
+    
+    if (validatedData.threeDSCallBackUrl) {
+      validatedData.threeDSCallBackUrl = validatedData.threeDSCallBackUrl.replace(/([^:])\/{2,}/g, '$1/');
+    }
+    
+    if (validatedData.returnUrl) {
+      validatedData.returnUrl = validatedData.returnUrl.replace(/([^:])\/{2,}/g, '$1/');
+    }
+    
+    // Log the URLs being used (helpful for debugging)
+    console.log('Paylink URLs being used:', {
+      callBackUrl: validatedData.callBackUrl,
+      threeDSCallBackUrl: validatedData.threeDSCallBackUrl,
+      returnUrl: validatedData.returnUrl
+    });
     
     // Use the API layer to create the invoice
     const response = await apiCreateInvoice(validatedData);
@@ -125,26 +150,57 @@ export async function createDirectCheckout(paymentData) {
     
     // Prepare the callback URL with transaction tracking
     let callbackUrl = paymentData.callbackUrl || PAYLINK_CONFIG.DEFAULT_CALLBACK_URL;
+    let threeDSCallbackUrl = PAYLINK_CONFIG.DEFAULT_3DS_CALLBACK_URL;
     
-    // Ensure callback URL has proper transaction tracking
-    if (!callbackUrl.includes('?')) {
-      callbackUrl = `${callbackUrl}?txn_id=${transactionId}`;
-    } else if (!callbackUrl.includes('txn_id=')) {
-      callbackUrl = `${callbackUrl}&txn_id=${transactionId}`;
+    // Detect if we're in browser environment and override localhost URLs with actual origin
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin;
+      // Only replace if URLs contain localhost
+      if (callbackUrl.includes('localhost')) {
+        callbackUrl = `${origin}/api/paylink/callback`;
+      }
+      if (threeDSCallbackUrl.includes('localhost')) {
+        threeDSCallbackUrl = `${origin}/api/paylink/3ds-callback`;
+      }
+      
+      if (PAYLINK_CONFIG.DEBUG_MODE) {
+        console.log('Detected browser environment, using current origin:', origin);
+      }
     }
+    
+    // Ensure callback URL has proper transaction tracking with multiple parameter formats
+    // This ensures our callback endpoint can identify the transaction regardless of which parameter
+    // name Paylink decides to use in the callback
+    const hasQueryParams = callbackUrl.includes('?');
+    let callbackWithParams = hasQueryParams ? callbackUrl : `${callbackUrl}?`;
+    
+    // Add all possible transaction identifier formats that Paylink might use in callbacks
+    // Paylink is inconsistent with parameter naming across different endpoints
+    const paramPrefix = hasQueryParams ? '&' : '';
+    
+    // Only add parameters if they're not already present
+    if (!callbackWithParams.includes('txn_id=')) {
+      callbackWithParams = `${callbackWithParams}${paramPrefix}txn_id=${transactionId}`;
+    }
+    
+    // Also include orderNumber parameter (used by Paylink in some callbacks)
+    if (!callbackWithParams.includes('orderNumber=')) {
+      callbackWithParams = `${callbackWithParams}&orderNumber=${transactionId}`;
+    }
+    
+    // Also include transactionNo parameter (used by Paylink in some callbacks)
+    if (!callbackWithParams.includes('transactionNo=')) {
+      callbackWithParams = `${callbackWithParams}&transactionNo=${transactionId}`;
+    }
+    
+    // Set the final callback URL
+    callbackUrl = callbackWithParams;
     
     // If subscription ID is provided, include it in the callback URL
-    if (paymentData.subscriptionId && !callbackUrl.includes('subscription_id=')) {
-      callbackUrl = callbackUrl.includes('?') 
-        ? `${callbackUrl}&subscription_id=${paymentData.subscriptionId}` 
-        : `${callbackUrl}?subscription_id=${paymentData.subscriptionId}`;
-    }
-    
-    // Fix any double slashes in the callback URL
-    callbackUrl = callbackUrl.replace(/([^:])\/{2,}/g, '$1/');
     
     if (PAYLINK_CONFIG.DEBUG_MODE) {
       console.log('Using callback URL:', callbackUrl);
+      console.log('Using 3DS callback URL base:', threeDSCallbackUrl);
     }
     
     // Create the invoice payload
@@ -152,6 +208,9 @@ export async function createDirectCheckout(paymentData) {
       orderNumber: transactionId,
       amount: formatAmount(paymentData.amount),
       callBackUrl: callbackUrl,
+      // Add 3DS callback URLs with transaction ID
+      threeDSCallBackUrl: `${threeDSCallbackUrl}?orderNumber=${transactionId}&transactionNo=${transactionId}`,
+      returnUrl: callbackUrl, // Fallback return URL same as callback
       currency: paymentData.currency || PAYLINK_CONFIG.CURRENCY,
       // Add customer info if provided
       ...(paymentData.customerInfo && {

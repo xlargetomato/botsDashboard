@@ -6,19 +6,63 @@ import { sendSubscriptionEmail } from '@/lib/email/emailService';
 import PAYLINK_CONFIG from '@/lib/paylink/config';
 
 /**
+ * Helper function to get the base URL for redirects
+ */
+function getBaseUrl(request) {
+  let baseUrl = '';
+  
+  // Check if this is coming from an NGROK URL
+  const requestUrl = request.url || '';
+  const host = request.headers.get('host') || '';
+  
+  if (process.env.NGROK_URL) {
+    baseUrl = process.env.NGROK_URL;
+    console.log('Using NGROK URL for redirect:', baseUrl);
+  } else if (process.env.NEXT_PUBLIC_APP_URL) {
+    baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+    console.log('Using APP_URL for redirect:', baseUrl);
+  } else if (requestUrl.includes('ngrok')) {
+    // Extract ngrok URL from request
+    const ngrokMatch = requestUrl.match(/(https?:\/\/[\w-]+\.ngrok-free\.app)/);
+    if (ngrokMatch && ngrokMatch[1]) {
+      baseUrl = ngrokMatch[1];
+      console.log('Extracted NGROK URL for redirect:', baseUrl);
+    }
+  } else if (host && !host.includes('localhost')) {
+    // Use the request host if it's not localhost
+    const protocol = requestUrl.startsWith('https') ? 'https' : 'http';
+    baseUrl = `${protocol}://${host}`;
+    console.log('Using request host for redirect:', baseUrl);
+  }
+  
+  return baseUrl;
+}
+
+/**
  * Helper function to process subscription and redirect appropriately
  */
 function processSubscriptionForRedirect(subscription, transaction, request) {
+  // Get base URL for redirect
+  let baseUrl = getBaseUrl(request);
+  let redirectPath = '';
+  
   // If the invoice was already processed by the webhook, the status should be updated
   if (transaction.status === 'completed') {
     // Payment completed - redirect to success page
-    return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=success&planName=${encodeURIComponent(subscription.plan_name)}`, request.url));
+    redirectPath = `/dashboard/client/subscriptions/payment-status?status=success&planName=${encodeURIComponent(subscription.plan_name)}`;
   } else if (transaction.status === 'failed' || transaction.status === 'cancelled') {
     // Payment failed - redirect to failure page
-    return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=failed&reason=${encodeURIComponent(transaction.status)}`, request.url));
+    redirectPath = `/dashboard/client/subscriptions/payment-status?status=failed&reason=${encodeURIComponent(transaction.status)}&txnId=${encodeURIComponent(transaction.transaction_id || '')}`;
   } else {
     // Payment still pending - redirect to pending page
-    return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=pending&planName=${encodeURIComponent(subscription.plan_name)}`, request.url));
+    redirectPath = `/dashboard/client/subscriptions/payment-status?status=pending&planName=${encodeURIComponent(subscription.plan_name)}`;
+  }
+  
+  // Use baseUrl if available, otherwise fallback to relative URL
+  if (baseUrl) {
+    return NextResponse.redirect(`${baseUrl}${redirectPath}`);
+  } else {
+    return NextResponse.redirect(new URL(redirectPath, request.url));
   }
 }
 
@@ -30,28 +74,174 @@ export async function GET(request) {
   try {
     // Get the transaction ID and subscription ID from the URL query parameters
     const url = new URL(request.url);
-    const txnId = url.searchParams.get('txn_id');
-    const subscriptionIdFromUrl = url.searchParams.get('subscription_id');
+    // Look for transaction ID in multiple possible parameter names
+    const txnId = url.searchParams.get('txn_id') || 
+                  url.searchParams.get('transactionNo') || 
+                  url.searchParams.get('orderNumber') || 
+                  url.searchParams.get('invoiceId');
+    const subscriptionIdFromUrl = url.searchParams.get('subscription_id') || url.searchParams.get('externalOrderNumber');
+    
+    // First, try to get error information from request body (JSON)
+    let statusCode, errorMsg, paylinkResponse;
+    try {
+      // Clone the request to read the body
+      const clonedRequest = request.clone();
+      // Try to parse response as JSON
+      const responseJson = await clonedRequest.json().catch(() => null);
+      
+      // If we have a valid JSON response, extract error info
+      if (responseJson) {
+        paylinkResponse = responseJson;
+        statusCode = responseJson.statusCode?.toString();
+        errorMsg = responseJson.msg;
+        
+        // If orderNumber is present in the JSON, use it as transaction ID
+        if (responseJson.orderNumber && !txnId) {
+          txnId = responseJson.orderNumber;
+        }
+        
+        // If externalOrderNumber is present, use it as subscription ID
+        if (responseJson.externalOrderNumber && !subscriptionIdFromUrl) {
+          subscriptionIdFromUrl = responseJson.externalOrderNumber;
+        }
+        
+        console.log('Parsed Paylink JSON response:', responseJson);
+      }
+    } catch (parseError) {
+      console.error('Error parsing Paylink response body:', parseError);
+      // If parsing fails, fall back to query params
+    }
+    
+    // If we couldn't extract from body, fall back to query params
+    if (!statusCode) {
+      statusCode = url.searchParams.get('statusCode');
+    }
+    
+    if (!errorMsg) {
+      errorMsg = url.searchParams.get('msg');
+    }
+    
+    console.log('URL query parameters:', Object.fromEntries(url.searchParams.entries()));
+    console.log(`Processing payment callback with status: ${statusCode}, message: ${errorMsg}, txnId: ${txnId}`);
+    
+    // Handle direct error responses from Paylink
+    if ((statusCode && statusCode !== '200' && statusCode !== '100') || errorMsg) {
+      console.log(`Payment error detected. Status: ${statusCode}, Message: ${errorMsg}`);
+      
+      // Map Paylink status codes to meaningful error messages
+      let detailedErrorMessage = 'Payment was declined';
+      
+      // Known Paylink status codes
+      if (statusCode) {
+        switch (statusCode) {
+          case '400': detailedErrorMessage = 'Bad request - missing or invalid payment parameters'; break;
+          case '401': detailedErrorMessage = 'Authentication failed - invalid merchant credentials'; break;
+          case '404': detailedErrorMessage = 'Payment resource not found'; break;
+          case '412': detailedErrorMessage = 'Payment precondition failed - internal error'; break;
+          case '422': detailedErrorMessage = 'Payment request could not be processed - validation error'; break;
+          case '451': detailedErrorMessage = 'Payment declined by issuing bank'; break;
+          case '500': detailedErrorMessage = 'Payment gateway internal error'; break;
+          default: detailedErrorMessage = `Payment error (code ${statusCode})`;
+        }
+      }
+      
+      // If we have a specific message from Paylink, use it
+      if (errorMsg && errorMsg.trim().length > 10) {
+        detailedErrorMessage = errorMsg;
+      }
+      
+      // Record error in transaction record if found
+      try {
+        if (txnId) {
+          await executeQuery(`
+            UPDATE payment_transactions 
+            SET status = 'failed', 
+                error_message = ?, 
+                error_code = ?,
+                updated_at = NOW()
+            WHERE transaction_id = ? OR transaction_no = ? OR paylink_reference = ? OR order_number = ?
+          `, [detailedErrorMessage, statusCode, txnId, txnId, txnId, txnId]);
+        }
+      } catch (dbError) {
+        console.error('Failed to update transaction with error details:', dbError);
+      }
+      
+      // Get base URL for redirect
+      let baseUrl = getBaseUrl(request);
+      
+      // Redirect to payment error page with detailed error
+      const errorPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent(detailedErrorMessage)}&txnId=${encodeURIComponent(txnId || '')}&code=${encodeURIComponent(statusCode || '')}`;
+      
+      if (baseUrl) {
+        return NextResponse.redirect(`${baseUrl}${errorPath}`);
+      } else {
+        return NextResponse.redirect(new URL(errorPath, request.url));
+      }
+    }
+    
+    console.log('URL query parameters:', Object.fromEntries(url.searchParams.entries()));
     
     if (!txnId) {
       return NextResponse.json(
-        { error: 'Missing transaction ID in redirect URL' },
+        { error: 'Missing transaction ID in redirect URL. Available params: ' + 
+               JSON.stringify(Object.fromEntries(url.searchParams.entries())) },
         { status: 400 }
       );
     }
     
     console.log(`Processing payment redirect with transaction ID: ${txnId} and subscription ID: ${subscriptionIdFromUrl || 'not provided'}`);
     
-    // Find the transaction in the database
+    // Find the transaction in the database - search using multiple possible identifiers
     const transactionResults = await executeQuery(`
       SELECT * FROM payment_transactions 
-      WHERE transaction_id = ? OR paylink_reference = ?
-    `, [txnId, txnId]);
+      WHERE transaction_id = ?
+      OR transaction_no = ?
+      OR paylink_reference = ?
+      OR order_number = ?
+      OR paylink_invoice_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `, [txnId, txnId, txnId, txnId, txnId]);
     
     if (!transactionResults.length) {
       console.error(`Transaction not found: ${txnId}`);
-      // Redirect to error page with message
-      return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=error&message=${encodeURIComponent('Transaction not found')}&txnId=${encodeURIComponent(txnId)}`, request.url));
+      
+      // Get base URL from request or environment variables
+      let baseUrl = '';
+      
+      // Check if this is coming from an NGROK URL
+      const requestUrl = request.url || '';
+      const host = request.headers.get('host') || '';
+      
+      if (process.env.NGROK_URL) {
+        baseUrl = process.env.NGROK_URL;
+        console.log('Using NGROK URL for redirect:', baseUrl);
+      } else if (process.env.NEXT_PUBLIC_APP_URL) {
+        baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+        console.log('Using APP_URL for redirect:', baseUrl);
+      } else if (requestUrl.includes('ngrok')) {
+        // Extract ngrok URL from request
+        const ngrokMatch = requestUrl.match(/(https?:\/\/[\w-]+\.ngrok-free\.app)/);
+        if (ngrokMatch && ngrokMatch[1]) {
+          baseUrl = ngrokMatch[1];
+          console.log('Extracted NGROK URL for redirect:', baseUrl);
+        }
+      } else if (host && !host.includes('localhost')) {
+        // Use the request host if it's not localhost
+        const protocol = requestUrl.startsWith('https') ? 'https' : 'http';
+        baseUrl = `${protocol}://${host}`;
+        console.log('Using request host for redirect:', baseUrl);
+      }
+      
+      // Fall back to relative URL if we couldn't determine a base URL
+      const redirectPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent('Transaction not found')}&txnId=${encodeURIComponent(txnId)}`;
+      
+      if (baseUrl) {
+        return NextResponse.redirect(`${baseUrl}${redirectPath}`);
+      } else {
+        // Fallback to relative redirect, which will use whatever host made the request
+        return NextResponse.redirect(new URL(redirectPath, request.url));
+      }
     }
     
     const transaction = transactionResults[0];
@@ -72,7 +262,18 @@ export async function GET(request) {
     
     if (!subscriptionResults.length) {
       console.error(`Subscription not found: ${subscriptionId}`);
-      return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=error&message=${encodeURIComponent('Subscription not found')}&txnId=${encodeURIComponent(txnId)}`, request.url));
+      
+      // Get base URL for redirect
+      let baseUrl = getBaseUrl(request);
+      
+      // Redirect to payment status page with error
+      const errorPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent('Subscription not found')}&txnId=${encodeURIComponent(txnId)}`;
+      
+      if (baseUrl) {
+        return NextResponse.redirect(`${baseUrl}${errorPath}`);
+      } else {
+        return NextResponse.redirect(new URL(errorPath, request.url));
+      }
     }
     
     const subscription = subscriptionResults[0];
@@ -82,8 +283,18 @@ export async function GET(request) {
   } catch (error) {
     console.error('Error processing payment redirect:', error);
     
+    // Get base URL for redirect
+    let baseUrl = getBaseUrl(request);
+    
     // Redirect to error page with generic message
-    return NextResponse.redirect(new URL(`/dashboard/client/subscriptions/payment-result?status=error&message=${encodeURIComponent('An error occurred processing your payment')}`, request.url));
+    const errorPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent('An error occurred processing your payment')}`;
+    
+    if (baseUrl) {
+      return NextResponse.redirect(`${baseUrl}${errorPath}`);
+    } else {
+      // Fallback to relative redirect, which will use whatever host made the request
+      return NextResponse.redirect(new URL(errorPath, request.url));
+    }
   }
 }
 

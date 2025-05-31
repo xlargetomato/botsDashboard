@@ -222,7 +222,6 @@ const CheckoutForm = ({
     setMessage(null);
     
     try {
-      // Validate form data
       const errors = validateForm();
       if (Object.keys(errors).length > 0) {
         setFormErrors(errors);
@@ -230,91 +229,16 @@ const CheckoutForm = ({
         return;
       }
       
-      // Generate unique transaction ID for tracking
       const transactionId = `SUB-${Date.now()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
       
-      // Step 1: First create the subscription record
-      setMessage({
-        type: 'processing',
-        content: 'Creating your subscription...'
-      });
-      
-      console.log('Creating subscription with transaction ID:', transactionId);
-      
-      const subscriptionResponse = await fetch('/api/subscriptions/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          plan_id: selectedPlan.id,
-          transaction_id: transactionId,
-          customer_info: {
-            name: `${formData.firstName} ${formData.lastName}`,
-            email: formData.email,
-            phone: formData.phone
-          },
-          payment_info: {
-            amount: parseFloat(calculateTotal()),
-            currency: 'SAR'
-          },
-          promo_code: appliedCoupon?.code || promoCode || null,
-          discount_percentage: appliedCoupon?.discount || discount || 0,
-          subscription_type: subscriptionType,
-          status: 'pending',
-          origin: origin || window.location.origin
-        })
-      });
-      
-      let subscriptionData;
-      try {
-        subscriptionData = await subscriptionResponse.json();
-      } catch (parseError) {
-        console.error('Error parsing subscription response:', parseError);
-        throw new Error('Could not parse subscription creation response');
-      }
-      
-      if (!subscriptionResponse.ok) {
-        console.error('Error creating subscription:', subscriptionData);
-        throw new Error(subscriptionData.message || 'Failed to create subscription');
-      }
-      
-      console.log('Subscription created successfully:', subscriptionData);
-      
-      // Get the subscription ID from the response
-      const subscriptionId = subscriptionData?.subscription?.id || 
-                           subscriptionData?.id || 
-                           subscriptionData?.subscriptionId;
-      
-      if (!subscriptionId) {
-        throw new Error('Failed to get subscription ID from response');
-      }
-      
-      // Create a callback URL that includes both transaction ID and subscription ID
-      const originUrl = origin || window.location.origin;
-      let callbackUrl = `${originUrl}/api/paylink/callback?txn_id=${transactionId}&subscription_id=${subscriptionId}`;
-      
-      // Fix any double slashes that aren't part of the protocol
-      callbackUrl = callbackUrl.replace(/([^:\/])\/+/g, "$1/");
-      
-      // Create the Paylink invoice using the subscription ID
       setMessage({
         type: 'processing',
         content: 'Connecting to payment gateway...'
       });
-      
-      // Step 2: Create the payment invoice using Paylink
-      setMessage({
-        type: 'processing',
-        content: 'Connecting to payment gateway...'
-      });
-      
-      console.log('Creating Paylink invoice for subscription:', subscriptionId);
-      
-      // Build a simplified payload for Paylink to minimize potential issues
+
       const invoicePayload = {
-        subscriptionId,
-        callbackUrl,
+        subscriptionId: selectedPlan.id,
+        callbackUrl: `${origin || window.location.origin}/api/paylink/callback?txn_id=${transactionId}`,
         amount: parseFloat(calculateTotal()),
         customerInfo: {
           clientName: `${formData.firstName} ${formData.lastName}`,
@@ -328,16 +252,12 @@ const CheckoutForm = ({
           qty: 1,
           description: `${selectedPlan.name} plan - ${subscriptionType} billing`
         }],
-        // Add origin to the request payload for proper URL construction
-        origin: originUrl
+        origin: origin || window.location.origin
       };
       
-      // Optional discount amount - only add if discount exists
       if (appliedCoupon?.discount || discount) {
         invoicePayload.discountAmount = selectedPlan.price * ((appliedCoupon?.discount || discount) / 100);
       }
-      
-      console.log('Sending invoice payload:', invoicePayload);
       
       const directInvoiceResponse = await fetch('/api/paylink/direct-invoice', {
         method: 'POST',
@@ -347,91 +267,49 @@ const CheckoutForm = ({
         body: JSON.stringify(invoicePayload)
       });
       
-      // Parse the response
       let invoiceData;
       try {
         invoiceData = await directInvoiceResponse.json();
-      } catch (jsonError) {
-        console.error('Failed to parse payment gateway response:', jsonError);
-        const rawText = await directInvoiceResponse.text().catch(() => 'Unable to read response');
-        throw new Error(`Payment gateway returned invalid response: ${rawText.substring(0, 100)}...`);
-      }
-      
-      // Handle error responses
-      if (!directInvoiceResponse.ok) {
-        throw new Error(
-          invoiceData.message || 
-          invoiceData.error || 
-          `Payment gateway error (${directInvoiceResponse.status}): ${directInvoiceResponse.statusText}`
-        );
-      }
-      
-      // Validate response contains required data
-      if (!invoiceData.paymentUrl) {
-        throw new Error('Payment URL is missing from the response. Please try again.');
-      }
-      
-      // Get the invoice ID - handle different response formats
-      const invoiceId = invoiceData.invoiceId || invoiceData.id || invoiceData.transactionNo;
-      
-      if (!invoiceId) {
-        throw new Error('Invoice ID is missing from the response. Please try again.');
-      }
-      
-      // Skip these database updates - they're now handled directly by the direct-invoice endpoint
-      // This reduces the potential for database errors in the client-side code
-      console.log('Payment URL generated successfully:', invoiceData.paymentUrl);
-      
-      // Store transaction information in sessionStorage for retrieval after payment
-      sessionStorage.setItem('paylink_transaction', JSON.stringify({
-        transaction_id: transactionId,
-        subscription_id: subscriptionId,
-        invoice_id: invoiceId,
-        plan_name: selectedPlan.name,
-        amount: parseFloat(calculateTotal()),
-        currency: 'SAR',
-        timestamp: new Date().toISOString()
-      }));
-      
-      // Show success message to user
-      setMessage({
-        type: 'success',
-        content: 'Subscription created! Redirecting to payment gateway...'
-      });
-      
-      console.log('Redirecting to payment URL:', invoiceData.paymentUrl);
-      
-      // Store a backup of the payment URL in localStorage in case the redirect fails
-      try {
-        localStorage.setItem('last_payment_url', invoiceData.paymentUrl);
-        localStorage.setItem('last_payment_timestamp', new Date().toISOString());
-      } catch (storageError) {
-        console.warn('Failed to store payment URL in localStorage:', storageError);
-      }
-      
-      // Short delay before redirect to allow user to see the success message
-      setTimeout(() => {
-        try {
-          // Use a full page redirect to the payment URL
+        if (directInvoiceResponse.ok && invoiceData.success) {
           window.location.href = invoiceData.paymentUrl;
-        } catch (redirectError) {
-          console.error('Error redirecting to payment URL:', redirectError);
-          setMessage({
-            type: 'error',
-            content: 'Failed to redirect to payment page. Please try again.'
-          });
+        } else {
+          throw new Error(invoiceData.message || 'Payment initiation failed');
         }
-      }, 1500);
+      } catch (error) {
+        throw new Error('Failed to parse payment response');
+      }
     } catch (error) {
-      console.error('Checkout error:', error);
-      setMessage({
-        type: 'error',
-        content: error.message || 'An error occurred during checkout. Please try again.'
-      });
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setError(error.message);
+      console.error('Payment error:', error);
     } finally {
-      setIsLoading(false);
       setIsProcessing(false);
+    }
+  };
+
+  // Handle Paylink callback
+  const handlePaylinkCallback = async (status, txnId) => {
+    try {
+      if (status === 'success') {
+        const updateResponse = await fetch(`/api/subscriptions/update-status?txn_id=${txnId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ status: 'active' })
+        });
+        if (!updateResponse.ok) {
+          throw new Error('Failed to update subscription status');
+        }
+        setMessage({
+          type: 'success',
+          content: 'Subscription activated successfully'
+        });
+      } else {
+        setError('Payment failed or was cancelled');
+      }
+    } catch (error) {
+      setError(error.message);
+      console.error('Callback error:', error);
     }
   };
 

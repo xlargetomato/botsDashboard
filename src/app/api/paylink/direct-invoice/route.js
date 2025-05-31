@@ -218,6 +218,25 @@ export async function POST(request) {
       // Create the invoice using the Paylink service
       const invoiceResult = await createDirectCheckout(checkoutData);
       
+      // Verify if subscription exists before creating transaction
+      let subscriptionExists = false;
+      if (subscriptionId) {
+        try {
+          const subscriptionCheck = await executeQuery(`
+            SELECT id FROM subscriptions WHERE id = ?
+          `, [subscriptionId]);
+          subscriptionExists = subscriptionCheck && subscriptionCheck.length > 0;
+          console.log('Subscription check result:', subscriptionExists ? 'Subscription exists' : 'Subscription does not exist');
+          
+          // Log available subscription columns for debugging
+          const subscriptionColumns = await executeQuery('DESCRIBE subscriptions');
+          console.log('Available subscription columns:', subscriptionColumns.map(col => col.Field));
+        } catch (checkError) {
+          console.error('Error checking subscription:', checkError);
+          subscriptionExists = false;
+        }
+      }
+      
       // Use a minimal set of core fields that are most likely to exist in any schema
       // Only use the basic fields that are almost certainly in the table
       try {
@@ -228,12 +247,40 @@ export async function POST(request) {
         `, [
           paymentTransactionId,
           userId,
-          subscriptionId || null,
+          subscriptionExists ? subscriptionId : null, // Only include subscription_id if it exists
           parseFloat(paymentAmount),
           invoiceResult.transactionId || orderNumber
         ]);
         
         console.log('Successfully inserted payment transaction with minimal fields');
+        
+        // If we have a subscription ID but no subscription exists, create a subscription
+        if (subscriptionId && !subscriptionExists) {
+          try {
+            await executeQuery(`
+              INSERT INTO subscriptions 
+              (id, user_id, plan_id, subscription_type, amount_paid, status, transaction_id, created_at, updated_at)
+              VALUES (?, ?, ?, 'standard', ?, 'pending', ?, NOW(), NOW())
+            `, [
+              subscriptionId,
+              userId,
+              planId || null,
+              parseFloat(paymentAmount),
+              invoiceResult.transactionId || orderNumber
+            ]);
+            console.log('Successfully created subscription record');
+            
+            // Now update the payment transaction to link to the subscription
+            await executeQuery(`
+              UPDATE payment_transactions 
+              SET subscription_id = ?
+              WHERE id = ?
+            `, [subscriptionId, paymentTransactionId]);
+            console.log('Successfully updated subscription with transaction ID');
+          } catch (subError) {
+            console.error('Error creating subscription:', subError);
+          }
+        }
       } catch (insertError) {
         console.error('Error inserting payment transaction:', insertError);
         // Continue despite error - the payment may still be processed

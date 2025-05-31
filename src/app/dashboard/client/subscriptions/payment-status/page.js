@@ -14,7 +14,12 @@ function PaymentStatusContent() {
   
   // Get invoice and transaction IDs from query parameters
   const invoiceId = searchParams.get('invoiceId');
-  const transactionId = searchParams.get('transactionId');
+  const transactionId = searchParams.get('transactionId') || searchParams.get('txnId');
+  
+  // Get error messages if present (for direct errors from payment gateway)
+  const errorMessage = searchParams.get('message');
+  const errorStatus = searchParams.get('status');
+  const errorCode = searchParams.get('code'); // Get error code from Paylink
   
   // Status states
   const [loading, setLoading] = useState(true);
@@ -22,15 +27,24 @@ function PaymentStatusContent() {
   const [paymentDetails, setPaymentDetails] = useState(null);
   const [error, setError] = useState(null);
   
-  // Redirect if no IDs provided
+  // Set error state immediately if error message is in URL
   useEffect(() => {
-    if (!invoiceId && !transactionId) {
+    if (errorStatus === 'error' && errorMessage) {
+      setError(errorMessage);
+      setLoading(false);
+    } else if (!invoiceId && !transactionId && !errorStatus) {
+      // Only redirect if we have no parameters at all
       router.push('/dashboard/client/subscriptions');
     }
-  }, [invoiceId, transactionId, router]);
+  }, [invoiceId, transactionId, errorStatus, errorMessage, router]);
   
-  // Poll for payment status
+  // Poll for payment status - but only if we don't already have an error from URL params
   useEffect(() => {
+    // Skip polling if we already have an error from URL parameters
+    if (errorStatus === 'error' && errorMessage) {
+      return;
+    }
+    
     let pollingInterval;
     let pollingCount = 0;
     const MAX_POLLING = 10; // Poll up to 10 times
@@ -88,14 +102,14 @@ function PaymentStatusContent() {
     return () => {
       clearInterval(pollingInterval);
     };
-  }, [invoiceId, transactionId]);
+  }, [invoiceId, transactionId, errorMessage, errorStatus]);
   
   // Status-specific content
   const renderStatusContent = () => {
     if (loading) {
       return (
         <div className="text-center py-8">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+          <div className="block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
           <p className="mt-4 text-lg text-gray-700 dark:text-gray-300 font-cairo">
             {isRtl ? 'جاري التحقق من حالة الدفع...' : 'Verifying payment status...'}
           </p>
@@ -106,7 +120,7 @@ function PaymentStatusContent() {
     if (error) {
       return (
         <div className="text-center py-8">
-          <div className="inline-block rounded-full h-16 w-16 bg-red-100 dark:bg-red-900 flex items-center justify-center">
+          <div className="rounded-full h-16 w-16 bg-red-100 dark:bg-red-900 flex items-center justify-center mx-auto">
             <svg className="h-8 w-8 text-red-600 dark:text-red-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -117,6 +131,16 @@ function PaymentStatusContent() {
           <p className="mt-2 text-gray-600 dark:text-gray-400">
             {error}
           </p>
+          {errorCode && (
+            <p className="mt-1 text-sm text-red-500 dark:text-red-400">
+              {isRtl ? 'كود الخطأ: ' : 'Error code: '} {errorCode}
+            </p>
+          )}
+          {transactionId && (
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-500">
+              {isRtl ? 'رقم المعاملة: ' : 'Transaction ID: '} {transactionId}
+            </p>
+          )}
           <div className="mt-6">
             <Link 
               href="/dashboard/client/subscriptions"
@@ -132,7 +156,7 @@ function PaymentStatusContent() {
     if (paymentStatus === 'completed') {
       return (
         <div className="text-center py-8">
-          <div className="inline-block rounded-full h-16 w-16 bg-green-100 dark:bg-green-900 flex items-center justify-center">
+          <div className="rounded-full h-16 w-16 bg-green-100 dark:bg-green-900 flex items-center justify-center mx-auto">
             <svg className="h-8 w-8 text-green-600 dark:text-green-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
@@ -203,7 +227,7 @@ function PaymentStatusContent() {
     if (paymentStatus === 'failed') {
       return (
         <div className="text-center py-8">
-          <div className="inline-block rounded-full h-16 w-16 bg-red-100 dark:bg-red-900 flex items-center justify-center">
+          <div className="rounded-full h-16 w-16 bg-red-100 dark:bg-red-900 flex items-center justify-center mx-auto">
             <svg className="h-8 w-8 text-red-600 dark:text-red-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -237,7 +261,7 @@ function PaymentStatusContent() {
     // Default: pending status
     return (
       <div className="text-center py-8">
-        <div className="inline-block rounded-full h-16 w-16 bg-yellow-100 dark:bg-yellow-900 flex items-center justify-center">
+        <div className="rounded-full h-16 w-16 bg-yellow-100 dark:bg-yellow-900 flex items-center justify-center">
           <svg className="h-8 w-8 text-yellow-600 dark:text-yellow-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
