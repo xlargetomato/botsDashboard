@@ -126,10 +126,15 @@ export async function GET(request) {
     
     // Handle direct error responses from Paylink
     if ((statusCode && statusCode !== '200' && statusCode !== '100') || errorMsg) {
-      console.log(`Payment error detected. Status: ${statusCode}, Message: ${errorMsg}`);
+      console.log(`Payment error detected. Status: ${statusCode}, Message: ${errorMsg}`, {
+        environment: process.env.PAYLINK_ENVIRONMENT || 'unknown',
+        transactionId: txnId,
+        fullResponse: paylinkResponse ? JSON.stringify(paylinkResponse) : 'none'
+      });
       
       // Map Paylink status codes to meaningful error messages
       let detailedErrorMessage = 'Payment was declined';
+      let isSandboxTestError = process.env.PAYLINK_ENVIRONMENT === 'sandbox';
       
       // Known Paylink status codes
       if (statusCode) {
@@ -137,11 +142,20 @@ export async function GET(request) {
           case '400': detailedErrorMessage = 'Bad request - missing or invalid payment parameters'; break;
           case '401': detailedErrorMessage = 'Authentication failed - invalid merchant credentials'; break;
           case '404': detailedErrorMessage = 'Payment resource not found'; break;
-          case '412': detailedErrorMessage = 'Payment precondition failed - internal error'; break;
+          case '412': 
+            detailedErrorMessage = isSandboxTestError ? 
+              'Sandbox test: Payment precondition failed (test error)' : 
+              'Payment precondition failed - internal error'; 
+            break;
           case '422': detailedErrorMessage = 'Payment request could not be processed - validation error'; break;
-          case '451': detailedErrorMessage = 'Payment declined by issuing bank'; break;
-          case '500': detailedErrorMessage = 'Payment gateway internal error'; break;
-          default: detailedErrorMessage = `Payment error (code ${statusCode})`;
+          case '451': 
+            detailedErrorMessage = isSandboxTestError ? 
+              'Sandbox test: Payment declined by issuing bank (test decline)' : 
+              'Payment declined by issuing bank'; 
+            break;
+          case '500': detailedErrorMessage = 'Payment gateway internal server error'; break;
+          case '503': detailedErrorMessage = 'Payment gateway service unavailable'; break;
+          default: detailedErrorMessage = `Payment failed with status code ${statusCode}`;
         }
       }
       
@@ -375,7 +389,11 @@ export async function POST(request) {
     const paidAmount = callbackData.amount || callbackData.paidAmount;
     const currency = callbackData.currency || 'SAR';
     
-    // Log the callback details
+    console.log('Paylink callback received', {
+      url: request.url,
+      environment: process.env.PAYLINK_ENVIRONMENT || 'unknown'
+    });
+    
     console.log('Payment callback received:', {
       invoiceId,
       transactionId,

@@ -253,40 +253,59 @@ export async function paylinkRequest(endpoint, method = 'GET', data = null) {
  */
 export async function createInvoice(invoiceData) {
   try {
-    if (PAYLINK_CONFIG.DEBUG_MODE) {
-      console.log('Creating Paylink invoice with data:', JSON.stringify(invoiceData, null, 2));
-    }
-    
-    // Ensure we have required invoice fields
-    const validatedData = { ...invoiceData };
-    
-    // Add a reference number if not present
-    if (!validatedData.orderNumber) {
-      validatedData.orderNumber = generateReferenceNumber();
-    }
-    
-    // Ensure amount is properly formatted
-    if (validatedData.amount) {
-      validatedData.amount = formatAmount(validatedData.amount);
-    }
-    
-    // Ensure we have mandatory fields
-    if (!validatedData.amount) {
+    // Validate required fields
+    if (!invoiceData.amount) {
       throw new Error('Invoice amount is required');
     }
     
-    // Set default currency if not provided
-    if (!validatedData.currency) {
-      validatedData.currency = PAYLINK_CONFIG.CURRENCY;
+    if (!invoiceData.orderNumber) {
+      throw new Error('Order number is required');
     }
     
-    // Add 3DS callback URLs with transaction ID to validated data
-    // This is CRITICAL: Use the dedicated 3DS return handler, not the general callback URL
-    // The 3DS return handler is specifically designed to complete the 3D Secure authentication
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NGROK_URL || 'http://localhost:3000';
-    validatedData.threeDSCallBackUrl = `${baseUrl}/api/paylink/3ds-return?orderNumber=${validatedData.orderNumber}&transactionNo=${validatedData.orderNumber}`;
-    // Keep the original callback URL for server notifications
-    validatedData.returnUrl = validatedData.callBackUrl || PAYLINK_CONFIG.DEFAULT_CALLBACK_URL;
+    // Create a validated copy of the data
+    const validatedData = { ...invoiceData };
+    
+    // Ensure amount is correctly formatted as a number with 2 decimal places
+    // Paylink requires amount to be a number, not a string
+    if (typeof validatedData.amount === 'string') {
+      validatedData.amount = parseFloat(parseFloat(validatedData.amount).toFixed(2));
+    } else {
+      validatedData.amount = parseFloat(parseFloat(validatedData.amount).toFixed(2));
+    }
+    
+    // Ensure currency is properly set - SAR is required for Saudi Arabian payments
+    if (!validatedData.currency) {
+      validatedData.currency = PAYLINK_CONFIG.CURRENCY || 'SAR';
+    }
+    
+    // Ensure callback URLs are properly set
+    if (!validatedData.callBackUrl) {
+      validatedData.callBackUrl = PAYLINK_CONFIG.DEFAULT_CALLBACK_URL;
+    }
+    
+    // Fix callback URL format if needed (remove any double slashes that aren't in protocol)
+    if (validatedData.callBackUrl) {
+      validatedData.callBackUrl = validatedData.callBackUrl.replace(/([^:])\/{2,}/g, '$1/');
+    }
+    
+    // Ensure 3DS callback URLs are properly set - critical for completing payment
+    if (!validatedData.threeDSCallBackUrl) {
+      // Add 3DS callback URLs with transaction ID to validated data
+      // This is CRITICAL: Use the dedicated 3DS return handler, not the general callback URL
+      // The 3DS return handler is specifically designed to complete the 3D Secure authentication
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NGROK_URL || 'http://localhost:3000';
+      validatedData.threeDSCallBackUrl = `${baseUrl}/api/paylink/3ds-return?orderNumber=${validatedData.orderNumber}&transactionNo=${validatedData.orderNumber}`;
+    }
+    
+    // Format 3DS callback URL
+    if (validatedData.threeDSCallBackUrl) {
+      validatedData.threeDSCallBackUrl = validatedData.threeDSCallBackUrl.replace(/([^:])\/{2,}/g, '$1/');
+    }
+    
+    // Ensure we have a return URL (used after 3DS auth)
+    if (!validatedData.returnUrl) {
+      validatedData.returnUrl = validatedData.callBackUrl || PAYLINK_CONFIG.DEFAULT_CALLBACK_URL;
+    }
     
     // Use paylinkRequest for authenticated API call with proper error handling
     const response = await paylinkRequest(PAYLINK_CONFIG.ENDPOINTS.INVOICES, 'POST', validatedData);

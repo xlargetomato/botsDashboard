@@ -182,7 +182,14 @@ export async function POST(request) {
       subscriptionId: subscriptionId,
       transactionId: orderNumber || `TXN-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       amount: parseFloat(paymentAmount),
+      // Always include currency (SAR is required for Saudi payments)
+      currency: PAYLINK_CONFIG.CURRENCY || 'SAR',
+      // Ensure callback URLs are properly set and accessible
       callbackUrl: callbackUrl || `${origin}/api/paylink/callback`,
+      // Explicitly set 3DS callback URL for handling 3D Secure authentication
+      threeDSCallBackUrl: `${origin}/api/paylink/3ds-callback`,
+      // Set return URL to match callback URL
+      returnUrl: callbackUrl || `${origin}/api/paylink/callback`,
       planName: planName,
       planDescription: planDescription,
       customerInfo: {
@@ -199,7 +206,8 @@ export async function POST(request) {
       metadata: {
         subscription_id: subscriptionId,
         user_id: userId,
-        payment_transaction_id: paymentTransactionId
+        payment_transaction_id: paymentTransactionId,
+        environment: PAYLINK_CONFIG.IS_PRODUCTION ? 'production' : 'sandbox'
       }
     };
     

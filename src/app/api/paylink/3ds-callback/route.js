@@ -161,55 +161,76 @@ export async function POST(request) {
       console.log('Using orderNumber as transaction number:', transactionNo);
     }
     
-    // Complete 3D Secure authentication with Paylink
-    const completionResult = await complete3DSecureAuthentication({
-      PaRes: paRes,
-      MD: callbackData.MD,
-      transactionNo: transactionNo,
-      orderNumber: callbackData.orderNumber
-    });
+    // Complete 3D Secure Authentication with extra sandbox debugging
+    let transactionData;
+    try {
+      console.log('Sending 3DS completion data to Paylink (sanitized):', {
+        PaRes: paRes ? '[PRESENT]' : '[MISSING]',
+        MD: callbackData.MD || '[MISSING]',
+        Environment: PAYLINK_CONFIG.ENVIRONMENT || 'unknown'
+      });
 
-    console.log('3DS authentication completion result:', {
-      success: completionResult.success,
-      status: completionResult.data?.status,
-      error: completionResult.error
-    });
+      transactionData = await complete3DSecureAuthentication({
+        PaRes: paRes,
+        MD: callbackData.MD
+      });
+      
+      console.log('3DS authentication response from Paylink:', {
+        status: transactionData?.status,
+        transactionNo: transactionData?.transactionNo || 'n/a',
+        success: transactionData?.success,
+        fullResponse: JSON.stringify(transactionData)
+      });
 
-    // If the authentication failed, return error
-    if (!completionResult.success) {
+    } catch (error) {
+      console.error('Error completing 3D Secure authentication:', error);
       return NextResponse.json(
-        { error: 'Failed to complete 3D Secure authentication', details: completionResult.error },
+        { error: 'Failed to complete 3D Secure authentication', details: error.message },
         { status: 500 }
       );
     }
 
     // Extract transaction data from the completion result
-    const transactionData = completionResult.data;
-    const invoiceId = transactionData.invoiceId || transactionData.id;
+    const completionSuccess = transactionData.success === true || transactionData.orderStatus === 'COMPLETED';
+    const transactionId = transactionData.invoiceId || transactionData.id || transactionData.transactionNo;
     // Use the result transaction number or fall back to the one we sent
-    const resultTransactionNo = transactionData.transactionNo || transactionNo || callbackData.MD;
+    const resultTxnId = transactionData.transactionNo || transactionNo || callbackData.MD;
 
-    // Get the full invoice details to confirm payment status
-    if (invoiceId) {
-      const invoiceDetails = await getInvoice(invoiceId);
+    console.log('3DS authentication completion result:', {
+      success: completionSuccess,
+      status: transactionData?.status || transactionData?.orderStatus,
+      isPaid: transactionData?.orderStatus === 'COMPLETED',
+      invoiceId: transactionId,
+      transactionNo: resultTxnId
+    });
+    
+    // Check if payment is completed
+    if (completionSuccess) {
+      // Get the payment status from Paylink response
+      const invoiceDetails = await getInvoice(transactionId || resultTxnId);
+      let isPaid = invoiceDetails.data?.orderStatus === 'COMPLETED';
       
       if (invoiceDetails.success && invoiceDetails.data) {
         const paymentStatus = invoiceDetails.data.status?.toLowerCase() || '';
-        const isPaid = (paymentStatus === 'paid' || paymentStatus === 'completed') && invoiceDetails.data.paidDate;
+        // Set isPaid to true if payment status is paid/completed or orderStatus is COMPLETED
+        isPaid = isPaid || (paymentStatus === 'paid' || paymentStatus === 'completed') && invoiceDetails.data.paidDate;
         
         // Update the transaction in our database
         try {
           let transactionRecord = null;
           
-          // Look up the transaction by invoice ID and transaction ID
-          // Removing paylink_reference as it doesn't exist in the schema
+          // Look up the transaction using multiple possible identifiers
+          // This is critical for sandbox testing where IDs may be inconsistent
           const transactionResults = await executeQuery(`
             SELECT * FROM payment_transactions 
             WHERE transaction_id = ? 
-          `, [resultTransactionNo]);
+               OR transaction_no = ? 
+               OR order_number = ? 
+               OR paylink_invoice_id = ?
+          `, [resultTxnId, resultTxnId, resultTxnId, resultTxnId]);
           
           // If not found by transaction_id, try to look up by paylink_invoice_id if it exists
-          if (transactionResults.length === 0 && invoiceId) {
+          if (transactionResults.length === 0 && transactionId) {
             // First check if paylink_invoice_id column exists
             try {
               const tableInfo = await executeQuery(`DESCRIBE payment_transactions`);
@@ -221,7 +242,7 @@ export async function POST(request) {
                 const invoiceResults = await executeQuery(`
                   SELECT * FROM payment_transactions 
                   WHERE paylink_invoice_id = ? OR invoice_id = ?
-                `, [invoiceId, invoiceId]);
+                `, [transactionId, transactionId]);
                 
                 if (invoiceResults.length > 0) {
                   // Use the first result
@@ -267,7 +288,7 @@ export async function POST(request) {
               `, [transactionRecord.subscription_id]);
               
               // Get proper base URL for redirect
-              const redirectPath = `/dashboard/client/subscriptions/payment-status?status=success&invoice_id=${invoiceId}`;
+              const redirectPath = `/dashboard/client/subscriptions/payment-status?status=success&invoice_id=${transactionId}`;
               const baseUrl = getBaseUrl(request);
               
               if (baseUrl) {
@@ -277,9 +298,37 @@ export async function POST(request) {
                 console.log('Redirecting to success page with relative URL');
                 return NextResponse.redirect(new URL(redirectPath, request.url));
               }
+            } else {
+              // Transaction found but payment failed - update status and redirect to error page
+              console.log('Payment verification failed. Updating status to failed.');
+              
+              // Map status codes to error messages for sandbox testing
+              let errorMessage = 'Payment was declined by the bank';
+              let errorCode = '451';
+              
+              if (transactionData.status) {
+                errorCode = transactionData.status;
+                switch(transactionData.status) {
+                  case '412': errorMessage = 'Payment precondition failed - sandbox test'; break;
+                  case '451': errorMessage = 'Payment declined by issuing bank - sandbox test'; break;
+                  default: errorMessage = `Payment failed with code ${transactionData.status} - sandbox test`;
+                }
+              }
+              
+              // Get proper base URL for redirect
+              const errorPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent(errorMessage)}&code=${errorCode}`;
+              const baseUrl = getBaseUrl(request);
+              
+              if (baseUrl) {
+                console.log('Redirecting to error page with base URL:', `${baseUrl}${errorPath}`);
+                return NextResponse.redirect(`${baseUrl}${errorPath}`);
+              } else {
+                console.log('Redirecting to error page with relative URL');
+                return NextResponse.redirect(new URL(errorPath, request.url));
+              }
             }
           } else {
-            console.error(`Transaction not found for invoice ${invoiceId} or transaction ${transactionNo}`);
+            console.error(`Transaction not found for invoice ${transactionId} or transaction ${resultTxnId}`);
           }
         } catch (dbError) {
           console.error('Database error while updating transaction:', dbError);
@@ -288,7 +337,7 @@ export async function POST(request) {
     }
 
     // If we couldn't verify with invoice or update subscription, redirect to pending status
-    const pendingPath = `/dashboard/client/subscriptions/payment-status?status=pending&invoice_id=${invoiceId || ''}`;
+    const pendingPath = `/dashboard/client/subscriptions/payment-status?status=pending&invoice_id=${transactionId || ''}&txn_id=${resultTxnId || ''}`;
     const baseUrl = getBaseUrl(request);
     
     if (baseUrl) {
