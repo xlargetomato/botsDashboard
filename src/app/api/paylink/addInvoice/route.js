@@ -3,6 +3,7 @@ import { verifyAuth } from '@/lib/auth';
 import { executeQuery } from '@/lib/db/config';
 import { createInvoice, generateReferenceNumber, formatAmount } from '@/lib/paylink/api';
 import PAYLINK_CONFIG from '@/lib/paylink/config';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * POST handler to create a new invoice in Paylink.sa
@@ -136,27 +137,61 @@ export async function POST(request) {
     
     const amount = formatAmount(subscription.amount_paid);
     
-    // Prepare the invoice data for Paylink.sa
+    // Prepare the invoice data according to the EXACT format from Paylink documentation
+    // https://developer.paylink.sa/docs/add-invoice
     const invoiceData = {
-      amount: amount,
-      callBackUrl: callbackUrl || PAYLINK_CONFIG.DEFAULT_CALLBACK_URL,
-      clientEmail: user.email,
-      clientName: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Client',
-      clientPhone: user.phone || '',
-      currencyCode: PAYLINK_CONFIG.CURRENCY,
+      // Required fields exactly as in the documentation
       orderNumber: referenceNumber,
+      amount: amount, // Using numeric value as shown in the documentation
+      callBackUrl: callbackUrl || PAYLINK_CONFIG.DEFAULT_CALLBACK_URL, // Note: capital 'B' in callBackUrl
+      clientName: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Client',
+      clientEmail: user.email,
+      clientMobile: user.phone || '',
+      currency: PAYLINK_CONFIG.CURRENCY,
+      // Products array with exact field names from documentation
       products: [
         {
-          description: subscription.plan_description || `${subscription.plan_name} - ${subscription.subscription_type} subscription`,
-          price: amount,
-          qty: 1,
-          title: subscription.plan_name || 'Subscription'
+          title: subscription.plan_name || 'Subscription', // Use title not name
+          price: amount, // Using numeric value
+          qty: 1, // Use qty not quantity
+          description: subscription.plan_description || `${subscription.plan_name} - ${subscription.subscription_type} subscription`
         }
-      ]
+      ],
+      // Optional fields that might help
+      note: `Subscription ${subscription.subscription_type} plan`,
+      displayPending: true
     };
     
+    // Log the full request being sent for debugging
+    console.log('Sending Paylink invoice request with data:', JSON.stringify(invoiceData, null, 2));
+    
+    // Add extensive logging before calling Paylink
+    console.log('==================== PAYLINK DEBUG ====================');
+    console.log('About to call Paylink createInvoice function');
+    console.log('Using credentials:', {
+      idToken: PAYLINK_CONFIG.ID_TOKEN ? `${PAYLINK_CONFIG.ID_TOKEN.substring(0, 10)}...` : 'MISSING',
+      secretKey: PAYLINK_CONFIG.SECRET_KEY ? 'PRESENT' : 'MISSING',
+      baseUrl: PAYLINK_CONFIG.BASE_URL
+    });
+    
     // Create the invoice in Paylink.sa
-    const invoiceResponse = await createInvoice(invoiceData);
+    let invoiceResponse;
+    try {
+      // Call with try/catch to get detailed error
+      console.log('Calling createInvoice now...');
+      invoiceResponse = await createInvoice(invoiceData);
+      console.log('Paylink createInvoice succeeded with response:', JSON.stringify(invoiceResponse, null, 2));
+    } catch (paylinkError) {
+      // Log detailed error info
+      console.error('Paylink createInvoice failed with error:', {
+        name: paylinkError.name,
+        message: paylinkError.message,
+        stack: paylinkError.stack?.split('\n').slice(0, 3).join('\n')
+      });
+      
+      // Throw a more informative error
+      throw new Error(`Paylink invoice creation failed: ${paylinkError.message}`);
+    }
     
     // Store the Paylink invoice details in the database with a transaction ID that we'll track
     const paymentTransactionId = uuidv4();
@@ -210,22 +245,49 @@ export async function POST(request) {
       WHERE id = ?
     `, [referenceNumber, subscriptionId]);
     
+    // Extract the payment URL correctly from the response
+    // The test script shows the checkUrl property is available in the response
+    const paymentUrl = invoiceResponse.checkUrl || invoiceResponse.url || null;
+    
+    console.log('Extracted payment URL:', paymentUrl);
+    console.log('Full Paylink response:', JSON.stringify(invoiceResponse, null, 2));
+    
     return NextResponse.json({
       success: true,
-      invoiceId: invoiceResponse.id,
+      invoiceId: invoiceResponse.id || invoiceResponse.transactionNo,
       transactionId: referenceNumber,
-      paymentUrl: invoiceResponse.url,
+      paymentUrl: paymentUrl,
       invoiceDetails: invoiceResponse
     });
   } catch (error) {
     console.error('Error creating Paylink invoice:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Failed to create invoice',
-        message: error.message 
-      },
-      { status: 500 }
-    );
+    
+    // Log detailed diagnostic information
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      cause: error.cause
+    });
+    
+    // Create a more informative error response
+    const errorDetails = {
+      success: false,
+      error: 'Failed to create invoice',
+      message: error.message || 'Unknown error occurred',
+      errorType: error.name || 'Error',
+      timestamp: new Date().toISOString(),
+      // Include additional troubleshooting info
+      debug: {
+        paylinkConfig: {
+          baseUrl: PAYLINK_CONFIG.BASE_URL,
+          hasIdToken: !!PAYLINK_CONFIG.ID_TOKEN,
+          hasSecretKey: !!PAYLINK_CONFIG.SECRET_KEY,
+          defaultCallbackUrl: PAYLINK_CONFIG.DEFAULT_CALLBACK_URL
+        }
+      }
+    };
+    
+    return NextResponse.json(errorDetails, { status: 500 });
   }
 }

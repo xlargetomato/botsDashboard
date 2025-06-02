@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/lib/i18n/config';
 import MainLayout from '@/components/layouts/MainLayout';
 import DashboardSidebar from '@/components/dashboard/DashboardSidebar';
-import CheckoutForm from '@/components/subscriptions/CheckoutForm';
+import CheckoutForm from '@/components/subscriptions/fixed-checkout';
 
 export default function CheckoutPage() {
   const { t, i18n } = useTranslation();
@@ -58,7 +58,10 @@ export default function CheckoutPage() {
 
   return (
     <MainLayout sidebar={<DashboardSidebar />}>
-      <CheckoutForm />
+      <CheckoutForm 
+        subscriptionType={selectedPlan?.type || selectedPlan?.subscription_type || 'monthly'}
+        preSelectedPlan={selectedPlan}
+      />
     </MainLayout>
   );
 }

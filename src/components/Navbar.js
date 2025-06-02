@@ -5,10 +5,90 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from '@/lib/i18n/config';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { useAuth } from '@/lib/auth/AuthContext';
-import ThemeSwitcher from '@/components/ThemeSwitcher';
-import LanguageSwitcher from '@/components/LanguageSwitcher';
-import { Menu, X, LogOut } from 'lucide-react';
+import { Menu, X, LogOut, Sun, Moon, Globe } from 'lucide-react';
 import { usePathname } from 'next/navigation';
+
+// Combined Theme and Language Switcher Component
+function CombinedSwitcher() {
+  const { t, i18n } = useTranslation();
+  const { theme, toggleTheme } = useTheme();
+  const [isOpen, setIsOpen] = useState(false);
+  
+  const changeLanguage = (lang) => {
+    i18n.changeLanguage(lang);
+    setIsOpen(false);
+  };
+  
+  const languages = [
+    { code: 'en', name: 'EN', fullName: 'English' },
+    { code: 'ar', name: 'AR', fullName: 'العربية' }
+  ];
+  
+  const currentLang = languages.find(lang => lang.code === i18n.language) || languages[0];
+  
+  return (
+    <div className="relative">
+      <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-full p-1 shadow-sm">
+        {/* Theme Toggle */}
+        <button
+          onClick={toggleTheme}
+          className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? (
+            <Sun size={16} className="text-yellow-500" />
+          ) : (
+            <Moon size={16} className="text-gray-600" />
+          )}
+        </button>
+        
+        {/* Separator */}
+        <div className="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+        
+        {/* Language Dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            className="flex items-center space-x-1 px-2 py-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors min-w-[50px] justify-center"
+          >
+            <Globe size={14} className="text-gray-600 dark:text-gray-400" />
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {currentLang.name}
+            </span>
+          </button>
+          
+          {isOpen && (
+            <>
+              {/* Backdrop */}
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setIsOpen(false)}
+              />
+              
+              {/* Dropdown Menu */}
+              <div className="absolute right-0 top-full mt-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-20 min-w-[120px]">
+                {languages.map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => changeLanguage(lang.code)}
+                    className={`w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center justify-between ${
+                      i18n.language === lang.code 
+                        ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' 
+                        : 'text-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    <span className="font-medium">{lang.fullName}</span>
+                    <span className="text-sm">{lang.name}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Navbar({ isStatic = false }) {
   const { t, i18n } = useTranslation();
@@ -73,8 +153,7 @@ export default function Navbar({ isStatic = false }) {
           
           <div className="flex items-center space-x-4 rtl:space-x-reverse">
             <div className="hidden md:flex items-center space-x-3 rtl:space-x-reverse">
-              <LanguageSwitcher />
-              <ThemeSwitcher />
+              <CombinedSwitcher />
             </div>
             
             <div className="hidden md:flex items-center space-x-2 rtl:space-x-reverse">
@@ -119,8 +198,8 @@ export default function Navbar({ isStatic = false }) {
               className={`md:hidden p-2 rounded-md ${isScrolled || mobileMenuOpen || isAuthPage ? 'text-gray-800 dark:text-gray-300' : 'text-white dark:text-gray-300'} hover:bg-gray-500/20 dark:hover:bg-gray-800/50 transition-colors`}
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
-      {mobileMenuOpen ? ( <X size={24} color={iconColor} /> ) : ( <Menu size={24} color={iconColor} />)}
-         </button>
+              {mobileMenuOpen ? ( <X size={24} color={iconColor} /> ) : ( <Menu size={24} color={iconColor} />)}
+            </button>
           </div>
         </div>
         
@@ -149,9 +228,8 @@ export default function Navbar({ isStatic = false }) {
               {t('common.navigation.docs')}
             </Link>
             
-            <div className="flex items-center space-x-4 rtl:space-x-reverse pt-2">
-              <LanguageSwitcher />
-              <ThemeSwitcher />
+            <div className="flex items-center justify-center pt-2">
+              <CombinedSwitcher />
             </div>
             
             {!loading && (

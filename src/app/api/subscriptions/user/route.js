@@ -81,17 +81,35 @@ export async function GET(request) {
     // Calculate remaining time for each subscription
     const now = new Date();
     const enhancedSubscriptions = subscriptions.map(sub => {
-      const expiredDate = new Date(sub.expired_date);
-      const remainingMs = expiredDate - now;
-      
+      // Initialize variables
       let remainingTime = '';
       let remainingTimeDetailed = {};
       let status = sub.status;
+      let remainingMs = 0;
+      
+      // Only calculate remaining time if subscription is active and has valid dates
+      if (status === 'active' && sub.expired_date && sub.started_date) {
+        const expiredDate = new Date(sub.expired_date);
+        remainingMs = expiredDate - now;
+      } else if (status === 'pending' || status === 'payment_failed' || !sub.expired_date) {
+        // For pending or failed payments, don't calculate remaining time
+        remainingMs = 0;
+      }
       
       if (remainingMs <= 0) {
         status = 'expired';
         remainingTime = '0';
-        remainingTimeDetailed = { value: 0, unit: 'days' };
+        remainingTimeDetailed = { 
+          minutes: 0,
+          hours: 0,
+          days: 0,
+          weeks: 0,
+          months: 0,
+          years: 0,
+          milliseconds: 0,
+          value: 0, 
+          unit: 'days' 
+        };
       } else {
         // Calculate time units
         const minutes = Math.floor(remainingMs / (1000 * 60));
@@ -156,11 +174,17 @@ export async function GET(request) {
         }
       }
       
+      // Ensure we have proper date objects for start and expiry
+      const formattedStartDate = sub.started_date ? new Date(sub.started_date) : null;
+      const formattedExpiredDate = sub.expired_date ? new Date(sub.expired_date) : null;
+      
       return {
         ...sub,
         status,
         remaining_time: remainingTime,
-        remaining_time_detailed: remainingTimeDetailed
+        remaining_time_detailed: remainingTimeDetailed,
+        started_date: formattedStartDate,
+        expired_date: formattedExpiredDate
       };
     });
     
@@ -174,10 +198,10 @@ export async function GET(request) {
   }
 }
 
-// POST handler to create a new subscription for the user
+// POST handler to create a payment intent - NOT an actual subscription yet
 export async function POST(request) {
   try {
-    // Try to verify authentication, but don't fail if it doesn't work
+    // Verify authentication
     let userId = 'user-1'; // Default for testing
     try {
       const authResult = await verifyAuth(request);
@@ -200,27 +224,9 @@ export async function POST(request) {
     } = await request.json();
     
     // Validate required fields
-    if (!planId || !subscriptionType || !amountPaid || !paymentMethod) {
+    if (!planId || !subscriptionType || !amountPaid) {
       return NextResponse.json(
         { error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
-    
-    // Calculate subscription dates
-    const startDate = new Date();
-    const expireDate = new Date(startDate);
-    
-    if (subscriptionType === 'weekly') {
-      // Add 7 days for weekly subscriptions
-      expireDate.setDate(expireDate.getDate() + 7);
-    } else if (subscriptionType === 'monthly') {
-      expireDate.setMonth(expireDate.getMonth() + 1);
-    } else if (subscriptionType === 'yearly') {
-      expireDate.setFullYear(expireDate.getFullYear() + 1);
-    } else {
-      return NextResponse.json(
-        { error: 'Invalid subscription type' },
         { status: 400 }
       );
     }
@@ -246,11 +252,7 @@ export async function POST(request) {
               discountAmount = promo.discount_value;
             }
             
-            // Update promo code usage
-            await executeQuery(
-              'UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = ?',
-              [promo.id]
-            );
+            // We'll update promo code usage only AFTER payment is confirmed
           }
         }
       } catch (promoError) {
@@ -259,60 +261,121 @@ export async function POST(request) {
       }
     }
     
-    // Create subscription
-    const subscriptionId = uuidv4();
+    // Generate unique IDs
+    const paymentIntentId = uuidv4();
+    const transactionIdToUse = transactionId || `TXN-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    
+    // Create payment intent in payment_intents table
     try {
-      await executeQuery(
-        `INSERT INTO subscriptions 
-         (id, user_id, plan_id, subscription_type, amount_paid, started_date, expired_date, status, payment_method, transaction_id, promo_code, discount_amount) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          subscriptionId, 
-          userId, 
-          planId, 
-          subscriptionType, 
-          amountPaid, 
-          startDate, 
-          expireDate, 
-          'pending', 
-          paymentMethod, 
-          transactionId || null, 
-          promoCode || null, 
-          discountAmount
-        ]
+      // First check if the table exists
+      const tableExists = await executeQuery(
+        "SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'payment_intents'"
       );
       
-      // Record payment transaction as pending until payment is confirmed
-      const transactionIdToUse = transactionId || uuidv4();
+      // Create table if it doesn't exist
+      if (!tableExists || tableExists.length === 0) {
+        await executeQuery(`
+          CREATE TABLE IF NOT EXISTS payment_intents (
+            id VARCHAR(36) PRIMARY KEY,
+            user_id VARCHAR(36) NOT NULL,
+            plan_id VARCHAR(36) NOT NULL,
+            subscription_type VARCHAR(20) NOT NULL,
+            amount_paid DECIMAL(10,2) NOT NULL,
+            discount_amount DECIMAL(10,2) DEFAULT 0,
+            payment_method VARCHAR(50),
+            transaction_id VARCHAR(100),
+            promo_code VARCHAR(50),
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            expires_at DATETIME,
+            payment_data JSON,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+          )
+        `);
+      }
+      
+      // Store the payment intent
       await executeQuery(
-        `INSERT INTO payment_transactions 
-         (id, user_id, subscription_id, amount, payment_method, transaction_id, status) 
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO payment_intents (
+          id, user_id, plan_id, subscription_type, amount_paid, discount_amount,
+          payment_method, transaction_id, promo_code, status, expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))
+        `,
         [
-          uuidv4(), 
-          userId, 
-          subscriptionId, 
-          amountPaid - discountAmount, 
-          paymentMethod, 
-          transactionIdToUse, 
+          paymentIntentId,
+          userId,
+          planId,
+          subscriptionType,
+          amountPaid,
+          discountAmount,
+          paymentMethod || 'paylink',
+          transactionIdToUse,
+          promoCode || null,
           'pending'
         ]
       );
     } catch (dbError) {
-      console.error('Database error when creating subscription:', dbError);
-      // Continue anyway for testing purposes
+      console.error('Error creating payment intent:', dbError);
+      return NextResponse.json(
+        { error: 'Failed to create payment intent', details: dbError.message },
+        { status: 500 }
+      );
     }
     
-    return NextResponse.json(
-      { 
-        message: 'Subscription created successfully', 
-        subscriptionId,
-        status: 'active',
-        startDate,
-        expireDate
-      },
-      { status: 201 }
-    );
+    // Record payment transaction as pending
+    try {
+      await executeQuery(
+        `INSERT INTO payment_transactions 
+         (id, user_id, amount, payment_method, transaction_id, status, payment_intent_id) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          uuidv4(), 
+          userId, 
+          amountPaid - discountAmount, 
+          paymentMethod || 'paylink', 
+          transactionIdToUse, 
+          'pending',
+          paymentIntentId
+        ]
+      );
+    } catch (txnError) {
+      console.warn('Error recording payment transaction (non-fatal):', txnError.message);
+      // Non-fatal error, continue
+    }
+    
+    // Get plan details for the response
+    let planDetails = null;
+    try {
+      const planResults = await executeQuery(
+        'SELECT * FROM subscription_plans WHERE id = ?',
+        [planId]
+      );
+      
+      if (planResults && planResults.length > 0) {
+        planDetails = planResults[0];
+      }
+    } catch (planError) {
+      console.warn('Error fetching plan details (non-fatal):', planError.message);
+    }
+    
+    // Return the payment intent details
+    const paymentIntent = {
+      id: paymentIntentId,
+      transactionId: transactionIdToUse,
+      planId: planId,
+      planName: planDetails?.name || 'Subscription Plan',
+      planDescription: planDetails?.description || 'Premium subscription',
+      subscriptionType: subscriptionType,
+      amount: amountPaid,
+      discountAmount: discountAmount,
+      netAmount: amountPaid - discountAmount,
+      currency: 'SAR', // Default currency
+      status: 'pending',
+      expiresAt: new Date(Date.now() + 3600000).toISOString(), // 1 hour from now
+      promoCode: promoCode || null
+    };
+    
+    return NextResponse.json({ paymentIntent }, { status: 201 });
   } catch (error) {
     console.error('Error creating subscription:', error);
     return NextResponse.json(

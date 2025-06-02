@@ -46,6 +46,10 @@ body {
   font-family: var(--font-cairo), system-ui, sans-serif;
 }
 
+.cairo-font {
+  font-family: 'Cairo', system-ui, sans-serif !important;
+}
+
 /* Additional utility classes */
 /* Custom container */
 .container-custom {

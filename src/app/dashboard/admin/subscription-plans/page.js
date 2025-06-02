@@ -180,6 +180,43 @@ function PlansList({ plans, onEditPlan, setPlans, isRtl }) {
     }
   };
   
+  // Handle plan deletion
+  const handleDeletePlan = async (plan) => {
+    // Ask for confirmation before deleting
+    const confirmMessage = isRtl 
+      ? `هل أنت متأكد أنك تريد حذف خطة "${plan.name}"؟`
+      : `Are you sure you want to delete the "${plan.name}" plan?`;
+      
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+    
+    try {
+      // Delete the plan via API
+      const response = await fetch(`/api/subscriptions/plans/${plan.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to delete plan');
+      }
+      
+      // Refresh plans from server to ensure we have the latest data
+      await fetchPlans();
+      
+      // Show success message
+      alert(isRtl ? 'تم حذف الخطة بنجاح' : 'Plan deleted successfully');
+      
+    } catch (error) {
+      console.error('Error deleting plan:', error);
+      alert(isRtl ? 'حدث خطأ أثناء حذف الخطة' : 'Error deleting plan');
+    }
+  };
+  
   return (
     <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-hidden">
       {/* Desktop view - Table */}
@@ -239,12 +276,21 @@ function PlansList({ plans, onEditPlan, setPlans, isRtl }) {
                     >
                       {isRtl ? 'تعديل' : 'Edit'}
                     </button>
-                    <button
-                      onClick={() => handleToggleActive(plan)}
-                      className={`px-3 py-1.5 rounded-md text-sm font-medium font-cairo ${plan.is_active ? 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50' : 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50'}`}
-                    >
-                      {plan.is_active ? (isRtl ? 'إلغاء التفعيل' : 'Deactivate') : (isRtl ? 'تفعيل' : 'Activate')}
-                    </button>
+                    {plan.is_active ? (
+                      <button
+                        onClick={() => handleDeletePlan(plan)}
+                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-medium rounded-md shadow-sm font-cairo"
+                      >
+                        {isRtl ? 'حذف' : 'Delete'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleToggleActive(plan)}
+                        className="px-3 py-1.5 bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 rounded-md text-sm font-medium font-cairo"
+                      >
+                        {isRtl ? 'تفعيل' : 'Activate'}
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -291,12 +337,21 @@ function PlansList({ plans, onEditPlan, setPlans, isRtl }) {
               <div className="grid grid-cols-2 gap-3 rtl:flex-row-reverse">
                 {isRtl ? (
                   <>
-                    <button
-                      onClick={() => handleToggleActive(plan)}
-                      className={`w-full px-3 py-2 text-sm font-medium rounded-md shadow-sm font-cairo ${plan.is_active ? 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50' : 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50'}`}
-                    >
-                      {plan.is_active ? 'إلغاء التفعيل' : 'تفعيل'}
-                    </button>
+                    {plan.is_active ? (
+                      <button
+                        onClick={() => handleDeletePlan(plan)}
+                        className="w-full px-3 py-2 text-sm bg-red-600 hover:bg-red-700 text-white font-medium rounded-md shadow-sm font-cairo"
+                      >
+                        حذف
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleToggleActive(plan)}
+                        className="w-full px-3 py-2 text-sm bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 font-medium rounded-md shadow-sm font-cairo"
+                      >
+                        تفعيل
+                      </button>
+                    )}
                     <button
                       onClick={() => onEditPlan(plan)}
                       className="w-full px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md shadow-sm font-cairo"
@@ -312,12 +367,21 @@ function PlansList({ plans, onEditPlan, setPlans, isRtl }) {
                     >
                       Edit
                     </button>
-                    <button
-                      onClick={() => handleToggleActive(plan)}
-                      className={`w-full px-3 py-2 text-sm font-medium rounded-md shadow-sm font-cairo ${plan.is_active ? 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50' : 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50'}`}
-                    >
-                      {plan.is_active ? 'Deactivate' : 'Activate'}
-                    </button>
+                    {plan.is_active ? (
+                      <button
+                        onClick={() => handleDeletePlan(plan)}
+                        className="w-full px-3 py-2 text-sm bg-red-600 hover:bg-red-700 text-white font-medium rounded-md shadow-sm font-cairo"
+                      >
+                        Delete
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleToggleActive(plan)}
+                        className="w-full px-3 py-2 text-sm bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 font-medium rounded-md shadow-sm font-cairo"
+                      >
+                        Activate
+                      </button>
+                    )}
                   </>
                 )}
               </div>

@@ -1,634 +1,613 @@
-'use client';
-
-import { useState, useEffect } from 'react';
-import { useTranslation } from '@/lib/i18n/config';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
-import CurrencySymbol from './CurrencySymbol';
+import { FaCreditCard, FaCheckCircle, FaExclamationCircle, FaSpinner, FaRegCreditCard } from 'react-icons/fa';
+import { MdLock, MdPayment, MdSecurity } from 'react-icons/md';
 
-export default function CheckoutForm() {
-  const { t, i18n } = useTranslation();
-  const isRtl = i18n.language === 'ar';
+const CheckoutForm = ({ 
+  plans = [],
+  subscriptionType = 'monthly',
+  promoCode = '',
+  discount = 0,
+  origin = ''
+}) => {
   const router = useRouter();
-  
-  // State for selected plan
   const [selectedPlan, setSelectedPlan] = useState(null);
-  
-  // State for form data
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
-    country: 'Saudi Arabia',
-    phoneNumber: '',
+    email: '',
+    phone: '',
+    cardNumber: '',
+    expiryDate: '',
+    cvv: '',
+    country: '',
     address: '',
-    addressCont: '',
     city: '',
-    province: '',
-    zipCode: '',
-    organization: '',
-    taxId: ''
+    postalCode: ''
   });
-  
-  // State for payment method
-  const [paymentMethod, setPaymentMethod] = useState('visa');
-  
-  // State for promo code
-  const [promoCode, setPromoCode] = useState('');
-  const [promoCodeValid, setPromoCodeValid] = useState(false);
-  const [promoCodeMessage, setPromoCodeMessage] = useState('');
-  const [discount, setDiscount] = useState(0);
-  
-  // State for loading
-  const [isLoading, setIsLoading] = useState(false);
-  
-  // State for form errors
   const [formErrors, setFormErrors] = useState({});
-  
-  // Calculate total amount
-  const total = selectedPlan ? selectedPlan.price - discount : 0;
-  
-  // Load selected plan from session storage
+  const [isLoading, setIsLoading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [message, setMessage] = useState(null);
+  const [error, setError] = useState('');
+  const [couponCode, setCouponCode] = useState(promoCode || '');
+  const [appliedCoupon, setAppliedCoupon] = useState(promoCode ? { code: promoCode, discount } : null);
+  const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
+
+  // Set default selected plan to first plan
   useEffect(() => {
-    const storedPlan = sessionStorage.getItem('selectedPlan');
-    if (storedPlan) {
-      const parsedPlan = JSON.parse(storedPlan);
-      console.log('Loaded plan from session storage:', parsedPlan);
-      // Ensure subscription_type is set correctly
-      if (!parsedPlan.subscription_type && parsedPlan.type) {
-        parsedPlan.subscription_type = parsedPlan.type;
-      }
-      setSelectedPlan(parsedPlan);
-    } else {
-      // Redirect back to plans page if no plan is selected
-      router.push('/dashboard/client/subscriptions');
+    if (plans && plans.length > 0 && !selectedPlan) {
+      setSelectedPlan(plans[0]);
+      console.log('Selected default plan:', plans[0]);
     }
-  }, [router]);
-  
+  }, [plans, selectedPlan]);
+
   // Handle form input changes
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-    setFormErrors(prev => ({ ...prev, [name]: '' }));
-  };
-  
-  // Handle payment method selection
-  const handlePaymentMethodChange = (method) => {
-    setPaymentMethod(method);
-  };
-  
-  // Handle promo code validation
-  const validatePromoCode = async () => {
-    if (!promoCode.trim()) return;
+    let formattedValue = value;
     
-    setIsLoading(true);
+    // Apply formatting for card number
+    if (name === 'cardNumber') {
+      formattedValue = formatCardNumber(value);
+    }
+    
+    // Apply formatting for expiry date
+    if (name === 'expiryDate') {
+      formattedValue = formatExpiryDate(value);
+    }
+    
+    setFormData(prev => ({ ...prev, [name]: formattedValue }));
+    
+    // Clear the error for this field when user starts typing
+    if (formErrors[name]) {
+      setFormErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[name];
+        return newErrors;
+      });
+    }
+  };
+
+  // Handle plan selection
+  const handlePlanSelect = (plan) => {
+    setSelectedPlan(plan);
+    console.log('Selected plan:', plan);
+    
+    // Update the URL with the selected plan ID for better user flow
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('plan', plan.id);
+      window.history.replaceState({}, '', url);
+    }
+    
+    // Clear any previous error messages
+    setMessage(null);
+  };
+
+  // Form validation
+  const validateForm = () => {
+    const errors = {};
+    
+    if (!formData.firstName.trim()) errors.firstName = 'First name is required';
+    if (!formData.lastName.trim()) errors.lastName = 'Last name is required';
+    
+    // Email validation
+    if (!formData.email.trim()) {
+      errors.email = 'Email is required';
+    } else if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(formData.email)) {
+      errors.email = 'Please enter a valid email address';
+    }
+    
+    // Phone validation (basic)
+    if (!formData.phone.trim()) {
+      errors.phone = 'Phone number is required';
+    } else if (!/^[0-9+ \-()]{8,}$/.test(formData.phone)) {
+      errors.phone = 'Please enter a valid phone number';
+    }
+    
+    // Card validation
+    if (!formData.cardNumber.trim()) {
+      errors.cardNumber = 'Card number is required';
+    } else if (formData.cardNumber.replace(/\s+/g, '').length < 16) {
+      errors.cardNumber = 'Please enter a valid card number';
+    }
+    
+    if (!formData.expiryDate.trim()) {
+      errors.expiryDate = 'Expiry date is required';
+    } else if (!/^[0-9]{2}\/[0-9]{2}$/.test(formData.expiryDate)) {
+      errors.expiryDate = 'Please enter a valid expiry date (MM/YY)';
+    }
+    
+    if (!formData.cvv.trim()) {
+      errors.cvv = 'CVV is required';
+    } else if (!/^[0-9]{3,4}$/.test(formData.cvv)) {
+      errors.cvv = 'Please enter a valid CVV';
+    }
+    
+    return errors;
+  };
+
+  // Format card number with spaces
+  const formatCardNumber = (value) => {
+    const v = value.replace(/\\s+/g, '').replace(/[^0-9]/gi, '');
+    const matches = v.match(/\\d{4,16}/g);
+    const match = matches && matches[0] || '';
+    const parts = [];
+    
+    for (let i = 0, len = match.length; i < len; i += 4) {
+      parts.push(match.substring(i, i + 4));
+    }
+    
+    if (parts.length) {
+      return parts.join(' ');
+    } else {
+      return value;
+    }
+  };
+
+  // Format expiry date
+  const formatExpiryDate = (value) => {
+    const v = value.replace(/\\s+/g, '').replace(/[^0-9]/gi, '');
+    
+    if (v.length >= 3) {
+      return `${v.substring(0, 2)}/${v.substring(2)}`;
+    }
+    return v;
+  };
+
+  // Handle coupon code input changes
+  const handleCouponChange = (e) => {
+    setCouponCode(e.target.value);
+  };
+
+  // Calculate the total amount to pay
+  const calculateTotal = () => {
+    if (!selectedPlan) return 0;
+    const discountAmount = selectedPlan.price * ((appliedCoupon?.discount || discount) / 100);
+    return (selectedPlan.price - discountAmount).toFixed(2);
+  };
+  
+  // Validate and apply coupon code
+  const validateCoupon = async () => {
+    if (!couponCode.trim()) return;
+    
+    setIsApplyingCoupon(true);
     try {
-      const response = await fetch('/api/subscriptions/promo', {
+      // Call your API to validate the coupon
+      const response = await fetch('/api/coupons/validate', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          promoCode,
-          planId: selectedPlan?.id,
-          subscriptionType: selectedPlan?.type
-        })
+        body: JSON.stringify({ code: couponCode.trim() })
       });
       
       const data = await response.json();
       
-      if (data.valid) {
-        setPromoCodeValid(true);
-        setPromoCodeMessage(data.message);
-        setDiscount(data.discountAmount);
+      if (response.ok && data.valid) {
+        setAppliedCoupon({
+          code: couponCode,
+          discount: data.discount
+        });
+        setMessage({
+          type: 'success',
+          content: `Coupon applied! You got ${data.discount}% off.`
+        });
       } else {
-        setPromoCodeValid(false);
-        setPromoCodeMessage(data.message);
-        setDiscount(0);
+        setAppliedCoupon(null);
+        setMessage({
+          type: 'error',
+          content: data.message || 'Invalid coupon code.'
+        });
       }
     } catch (error) {
-      console.error('Error validating promo code:', error);
-      setPromoCodeValid(false);
-      setPromoCodeMessage(isRtl ? 'حدث خطأ أثناء التحقق من الرمز الترويجي' : 'Error validating promo code');
+      console.error('Error validating coupon:', error);
+      setMessage({
+        type: 'error',
+        content: 'Failed to validate coupon. Please try again.'
+      });
     } finally {
-      setIsLoading(false);
+      setIsApplyingCoupon(false);
+      setTimeout(() => setMessage(null), 5000);
     }
   };
-  
-  // Validation function
-  const validateFormData = () => {
-    const errors = {};
-    if (!formData.firstName.trim()) errors.firstName = 'First name is required';
-    if (!formData.lastName.trim()) errors.lastName = 'Last name is required';
-    if (!formData.phoneNumber.trim()) errors.phoneNumber = 'Phone number is required';
-    if (!formData.address.trim()) errors.address = 'Address is required';
-    if (!formData.city.trim()) errors.city = 'City is required';
-    // Make zipCode optional
-    return errors;
-  };
 
-  // Handle checkout process
-  const handleCheckout = async () => {
-    const errors = validateFormData();
-    setFormErrors(errors);
-    if (Object.keys(errors).length > 0) {
-      console.error('Validation errors:', errors);
-      alert('Please correct the errors in the form');
-      return;
-    }
-
-    if (!selectedPlan) {
-      alert('Please select a subscription plan');
-      return;
-    }
+  // Handle form submission
+  const handleCheckout = async (e) => {
+    e.preventDefault();
     
-    setIsLoading(true);
+    setIsProcessing(true);
+    setError('');
+    setMessage(null);
+    
     try {
-      // Generate a unique transaction ID
-      const transactionId = `TXN-${Date.now()}-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
+      const errors = validateForm();
+      if (Object.keys(errors).length > 0) {
+        setFormErrors(errors);
+        setIsProcessing(false);
+        return;
+      }
       
-      // Generate a unique access ticket for WhatsApp bot
-      const accessTicket = `WA-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+      const transactionId = `SUB-${Date.now()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
       
-      // Calculate total amount
-      const totalAmount = selectedPlan.price - discount;
-      
-      // Use the exact subscription type from the selected plan
-      let subscriptionType = selectedPlan.subscription_type || selectedPlan.type || 'yearly';
-      console.log(`Using subscription type: ${subscriptionType} for checkout`);
-      
-      // Create subscription data to be sent to the API
-      const subscriptionData = {
-        planId: selectedPlan.id,
-        subscriptionType: subscriptionType, // Use the correct subscription type
-        amountPaid: totalAmount,
-        discount: discount,
-        paymentMethod: 'paylink', // Set payment method to Paylink.sa
-        transactionId: transactionId,
-        promoCode: promoCodeValid ? promoCode : null,
-        // Additional data for UI and tracking
-        planName: selectedPlan.name,
-        billingInfo: {
-          ...formData,
-          fullName: `${formData.firstName} ${formData.lastName}`
+      setMessage({
+        type: 'processing',
+        content: 'Connecting to payment gateway...'
+      });
+
+      const invoicePayload = {
+        subscriptionId: selectedPlan.id,
+        callbackUrl: `${origin || window.location.origin}/api/paylink/callback?txn_id=${transactionId}`,
+        amount: parseFloat(calculateTotal()),
+        customerInfo: {
+          clientName: `${formData.firstName} ${formData.lastName}`,
+          clientEmail: formData.email,
+          clientMobile: formData.phone
         },
-        accessTicket: accessTicket
+        orderNumber: transactionId,
+        products: [{
+          title: `${selectedPlan.name} Subscription - ${subscriptionType}`,
+          price: parseFloat(selectedPlan.price),
+          qty: 1,
+          description: `${selectedPlan.name} plan - ${subscriptionType} billing`
+        }],
+        origin: origin || window.location.origin
       };
       
-      // Create the initial subscription record
-      const response = await fetch('/api/subscriptions/user', {
+      if (appliedCoupon?.discount || discount) {
+        invoicePayload.discountAmount = selectedPlan.price * ((appliedCoupon?.discount || discount) / 100);
+      }
+      
+      const directInvoiceResponse = await fetch('/api/paylink/direct-invoice', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(subscriptionData)
+        body: JSON.stringify(invoicePayload)
       });
       
-      if (response.ok) {
-        const result = await response.json();
-        
-        // Store subscription details in session storage for the success page
-        const subscriptionDetails = {
-          id: result.subscriptionId,
-          plan_id: selectedPlan.id,
-          plan_name: selectedPlan.name,
-          subscription_type: subscriptionType,
-          amount_paid: totalAmount,
-          discount_amount: discount,
-          payment_method: 'paylink',
-          transaction_id: transactionId,
-          started_date: result.startDate,
-          expired_date: result.expireDate,
-          status: 'pending'
-        };
-        
-        sessionStorage.setItem('subscriptionDetails', JSON.stringify(subscriptionDetails));
-        
-        try {
-          // Store the subscription ID in localStorage to help with reconciliation
-          localStorage.setItem('currentSubscriptionId', result.subscriptionId);
-          console.log('Stored subscription ID in localStorage:', result.subscriptionId);
-          
-          // Create a dynamic callback URL that includes the subscription ID and transaction ID
-          const callbackUrl = `${window.location.origin}/api/paylink/callback?txn_id=${transactionId}&subscription_id=${result.subscriptionId}`;
-          
-          // Create Paylink.sa invoice using our API
-          const paylinkResponse = await fetch('/api/paylink/addInvoice', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              subscriptionId: result.subscriptionId,
-              callbackUrl: callbackUrl
-            })
-          });
-          
-          if (paylinkResponse.ok) {
-            const paylinkResult = await paylinkResponse.json();
-            
-            // Redirect to Paylink.sa payment page
-            if (paylinkResult.paymentUrl) {
-              console.log('Redirecting to Paylink payment page:', paylinkResult.paymentUrl);
-              window.location.href = paylinkResult.paymentUrl;
-            } else {
-              // Fallback to our payment gateway if Paylink URL is not available
-              const encodedPlanName = encodeURIComponent(selectedPlan.name);
-              router.push(
-                `/dashboard/client/subscriptions/payment-gateway?txn_id=${transactionId}&amount=${totalAmount.toFixed(2)}&plan_name=${encodedPlanName}`
-              );
-            }
-          } else {
-            // Handle Paylink error - fallback to our payment gateway
-            console.error('Paylink invoice creation error:', await paylinkResponse.json());
-            const encodedPlanName = encodeURIComponent(selectedPlan.name);
-            router.push(
-              `/dashboard/client/subscriptions/payment-gateway?txn_id=${transactionId}&amount=${totalAmount.toFixed(2)}&plan_name=${encodedPlanName}`
-            );
-          }
-        } catch (paylinkError) {
-          // If Paylink integration fails, fall back to our payment gateway
-          console.error('Paylink integration error:', paylinkError);
-          const encodedPlanName = encodeURIComponent(selectedPlan.name);
-          router.push(
-            `/dashboard/client/subscriptions/payment-gateway?txn_id=${transactionId}&amount=${totalAmount.toFixed(2)}&plan_name=${encodedPlanName}`
-          );
+      let invoiceData;
+      try {
+        invoiceData = await directInvoiceResponse.json();
+        if (directInvoiceResponse.ok && invoiceData.success) {
+          window.location.href = invoiceData.paymentUrl;
+        } else {
+          throw new Error(invoiceData.message || 'Payment initiation failed');
         }
-      } else {
-        // Handle error
-        const errorData = await response.json();
-        alert(isRtl ? 'حدث خطأ أثناء إنشاء الاشتراك: ' + errorData.error : 'Error creating subscription: ' + errorData.error);
-        console.error('Subscription creation error:', errorData);
+      } catch (error) {
+        throw new Error('Failed to parse payment response');
       }
     } catch (error) {
-      console.error('Checkout error:', error);
-      alert(isRtl ? 'حدث خطأ أثناء معالجة الطلب' : 'An error occurred during checkout');
+      setError(error.message);
+      console.error('Payment error:', error);
     } finally {
-      setIsLoading(false);
+      setIsProcessing(false);
     }
   };
-  
-  if (!selectedPlan) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-  
+
+  // Handle Paylink callback
+  const handlePaylinkCallback = async (status, txnId) => {
+    try {
+      if (status === 'success') {
+        const updateResponse = await fetch(`/api/subscriptions/update-status?txn_id=${txnId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ status: 'active' })
+        });
+        if (!updateResponse.ok) {
+          throw new Error('Failed to update subscription status');
+        }
+        setMessage({
+          type: 'success',
+          content: 'Subscription activated successfully'
+        });
+      } else {
+        setError('Payment failed or was cancelled');
+      }
+    } catch (error) {
+      setError(error.message);
+      console.error('Callback error:', error);
+    }
+  };
+
   return (
-    <div className="py-6 px-4 sm:p-6 lg:p-8">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-2xl font-bold font-cairo text-gray-900 dark:text-white mb-6">
-          {isRtl ? 'إتمام الدفع' : 'Complete Checkout'}
-        </h1>
+    <div className="w-full max-w-7xl mx-auto p-4 md:p-6 bg-white rounded-lg shadow-md">
+      <h2 className="text-2xl md:text-3xl font-bold text-gray-800 mb-6 text-center">Complete Your Order</h2>
+      
+      {message && (
+        <div className={`mb-6 p-4 rounded-md flex items-center ${message.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+          {message.type === 'success' ? (
+            <FaCheckCircle className="mr-3 flex-shrink-0" />
+          ) : (
+            <FaSpinner className="mr-3 animate-spin flex-shrink-0" />
+          )}
+          <span>{message.content}</span>
+        </div>
+      )}
+      
+      {error && (
+        <div className="mb-6 p-4 rounded-md flex items-center bg-red-100 text-red-800">
+          <FaExclamationCircle className="mr-3 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+      
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div className="lg:col-span-2 order-1 lg:order-1">
+          <h3 className="text-xl font-semibold text-gray-800 mb-4">Select Your Plan</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
+            {plans && plans.length > 0 ? (
+              plans.map(plan => (
+                <div 
+                  key={plan.id}
+                  className={`rounded-lg border p-5 cursor-pointer transition-all duration-200 ${selectedPlan?.id === plan.id 
+                    ? 'border-blue-500 bg-blue-50 shadow-md' 
+                    : 'border-gray-200 hover:border-blue-300 hover:shadow-sm'}`}
+                  onClick={() => handlePlanSelect(plan)}
+                >
+                  <h4 className="font-bold text-lg text-gray-800">{plan.name}</h4>
+                  <div className="my-3 text-2xl font-bold text-blue-600">
+                    ${plan.price}
+                    <span className="text-sm font-normal text-gray-500 ml-1">/ {subscriptionType}</span>
+                  </div>
+                  <div className="mt-3 mb-4">
+                    <ul className="space-y-2">
+                      <li className="flex items-start">
+                        <svg className="h-5 w-5 text-green-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>Access to {plan.name} features</span>
+                      </li>
+                      <li className="flex items-start">
+                        <svg className="h-5 w-5 text-green-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>{plan.name === 'Basic' ? '5' : plan.name === 'Premium' ? '15' : '50'} project uploads</span>
+                      </li>
+                      <li className="flex items-start">
+                        <svg className="h-5 w-5 text-green-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>{plan.name === 'Basic' ? 'Email' : 'Priority'} support</span>
+                      </li>
+                      {plan.name !== 'Basic' && (
+                        <li className="flex items-start">
+                          <svg className="h-5 w-5 text-green-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span>Advanced analytics</span>
+                        </li>
+                      )}
+                      {plan.name === 'Enterprise' && (
+                        <li className="flex items-start">
+                          <svg className="h-5 w-5 text-green-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span>Custom integrations</span>
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                  <div className={`mt-4 text-center py-2 px-4 rounded-md font-medium ${selectedPlan?.id === plan.id 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`}>
+                    {selectedPlan?.id === plan.id ? 'Selected' : 'Select Plan'}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="p-6 border border-gray-200 rounded-lg bg-gray-50 text-center">
+                <p className="text-gray-600">No subscription plans available at the moment. Please check back later.</p>
+              </div>
+            )}
+          </div>
+        </div>
         
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-              <h2 className="text-xl font-bold font-cairo text-gray-900 dark:text-white mb-6">
-                {isRtl ? 'معلومات الفوترة' : 'Billing Information'}
-              </h2>
-              
-              <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* First Name */}
-                <div>
-                  <label htmlFor="firstName" className="block text-gray-700 dark:text-gray-300 mb-2 font-cairo">
-                    {isRtl ? 'الاسم الأول' : 'First Name'}
-                  </label>
+        <div className="lg:col-span-3 order-2 lg:order-2">
+          <div className="bg-white rounded-lg border border-gray-200 p-5">
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+              <MdPayment className="mr-2 text-blue-600" size={22} />
+              Payment Details
+            </h3>
+            <form onSubmit={handleCheckout}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="space-y-1">
+                  <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">First Name</label>
                   <input
                     type="text"
                     id="firstName"
                     name="firstName"
                     value={formData.firstName}
                     onChange={handleInputChange}
-                    className={`px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-full ${formErrors.firstName ? 'border-red-500' : ''}`}
+                    className={`w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${formErrors.firstName ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
                   />
-                  {formErrors.firstName && (
-                    <p className="text-red-500 text-sm mt-1">{formErrors.firstName}</p>
-                  )}
+                  {formErrors.firstName && <div className="text-red-600 text-sm mt-1">{formErrors.firstName}</div>}
                 </div>
                 
-                {/* Last Name */}
-                <div>
-                  <label htmlFor="lastName" className="block text-gray-700 dark:text-gray-300 mb-2 font-cairo">
-                    {isRtl ? 'الاسم الأخير' : 'Last Name'}
-                  </label>
+                <div className="space-y-1">
+                  <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">Last Name</label>
                   <input
                     type="text"
                     id="lastName"
                     name="lastName"
                     value={formData.lastName}
                     onChange={handleInputChange}
-                    className={`px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-full ${formErrors.lastName ? 'border-red-500' : ''}`}
+                    className={`w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${formErrors.lastName ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
                   />
-                  {formErrors.lastName && (
-                    <p className="text-red-500 text-sm mt-1">{formErrors.lastName}</p>
-                  )}
+                  {formErrors.lastName && <div className="text-red-600 text-sm mt-1">{formErrors.lastName}</div>}
                 </div>
                 
-                {/* Country */}
-                <div>
-                  <label htmlFor="country" className="block text-gray-700 dark:text-gray-300 mb-2 font-cairo">
-                    {isRtl ? 'الدولة' : 'Country'}
-                  </label>
-                  <select
-                    id="country"
-                    name="country"
-                    value={formData.country}
+                <div className="space-y-1">
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email</label>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    value={formData.email}
                     onChange={handleInputChange}
-                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-full"
-                  >
-                    <option value="Saudi Arabia">{isRtl ? 'المملكة العربية السعودية' : 'Saudi Arabia'}</option>
-                    <option value="Egypt">{isRtl ? 'مصر' : 'Egypt'}</option>
-                    <option value="UAE">{isRtl ? 'الإمارات العربية المتحدة' : 'UAE'}</option>
-                    <option value="Kuwait">{isRtl ? 'الكويت' : 'Kuwait'}</option>
-                    <option value="Qatar">{isRtl ? 'قطر' : 'Qatar'}</option>
-                  </select>
+                    className={`w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${formErrors.email ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                  />
+                  {formErrors.email && <div className="text-red-600 text-sm mt-1">{formErrors.email}</div>}
                 </div>
                 
-                {/* Phone Number */}
-                <div>
-                  <label htmlFor="phoneNumber" className="block text-gray-700 dark:text-gray-300 mb-2 font-cairo">
-                    {isRtl ? 'رقم الهاتف' : 'Phone Number'}
-                  </label>
+                <div className="space-y-1">
+                  <label htmlFor="phone" className="block text-sm font-medium text-gray-700">Phone</label>
                   <input
                     type="tel"
-                    id="phoneNumber"
-                    name="phoneNumber"
-                    value={formData.phoneNumber}
+                    id="phone"
+                    name="phone"
+                    value={formData.phone}
                     onChange={handleInputChange}
-                    className={`px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-full ${formErrors.phoneNumber ? 'border-red-500' : ''}`}
+                    className={`w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${formErrors.phone ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                    placeholder="+1 (555) 123-4567"
                   />
-                  {formErrors.phoneNumber && (
-                    <p className="text-red-500 text-sm mt-1">{formErrors.phoneNumber}</p>
-                  )}
-                </div>
-                
-                {/* Address */}
-                <div className="md:col-span-2">
-                  <label htmlFor="address" className="block text-gray-700 dark:text-gray-300 mb-2 font-cairo">
-                    {isRtl ? 'العنوان' : 'Address'}
-                  </label>
-                  <input
-                    type="text"
-                    id="address"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleInputChange}
-                    className={`px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-full ${formErrors.address ? 'border-red-500' : ''}`}
-                  />
-                  {formErrors.address && (
-                    <p className="text-red-500 text-sm mt-1">{formErrors.address}</p>
-                  )}
-                </div>
-                
-                {/* City */}
-                <div>
-                  <label htmlFor="city" className="block text-gray-700 dark:text-gray-300 mb-2 font-cairo">
-                    {isRtl ? 'المدينة' : 'City'}
-                  </label>
-                  <input
-                    type="text"
-                    id="city"
-                    name="city"
-                    value={formData.city}
-                    onChange={handleInputChange}
-                    className={`px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-full ${formErrors.city ? 'border-red-500' : ''}`}
-                  />
-                  {formErrors.city && (
-                    <p className="text-red-500 text-sm mt-1">{formErrors.city}</p>
-                  )}
-                </div>
-                
-                {/* Province/State */}
-                <div>
-                  <label htmlFor="province" className="block text-gray-700 dark:text-gray-300 mb-2 font-cairo">
-                    {isRtl ? 'المحافظة / المنطقة' : 'Province / Region'}
-                  </label>
-                  <input
-                    type="text"
-                    id="province"
-                    name="province"
-                    value={formData.province}
-                    onChange={handleInputChange}
-                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-full"
-                  />
+                  {formErrors.phone && <div className="text-red-600 text-sm mt-1">{formErrors.phone}</div>}
                 </div>
               </div>
               
-              {/* Payment Method Selection */}
-              <h3 className="text-lg font-bold font-cairo text-gray-900 dark:text-white mb-4">
-                {isRtl ? 'طريقة الدفع' : 'Payment Method'}
-              </h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                <button
-                  type="button"
-                  onClick={() => handlePaymentMethodChange('visa')}
-                  className={`p-4 border rounded-lg flex items-center justify-center h-20 ${
-                    paymentMethod === 'visa' 
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                      : 'border-gray-300 dark:border-gray-600'
-                  }`}
-                >
-                  <Image 
-                    src="/images/payment/visa.svg" 
-                    alt="Visa" 
-                    width={60} 
-                    height={40} 
-                    className="object-contain max-h-12"
-                  />
-                </button>
+              <div className="my-6 border-t border-gray-200 pt-4">
+                <h4 className="text-lg font-medium text-gray-800 mb-3 flex items-center">
+                  <MdSecurity className="mr-2 text-blue-600" size={20} />
+                  Payment Information
+                  <span className="ml-2 flex items-center text-xs bg-gray-100 text-gray-600 py-1 px-2 rounded-full">
+                    <MdLock className="mr-1" size={12} /> Secure
+                  </span>
+                </h4>
                 
-                <button
-                  type="button"
-                  onClick={() => handlePaymentMethodChange('mastercard')}
-                  className={`p-4 border rounded-lg flex items-center justify-center h-20 ${
-                    paymentMethod === 'mastercard' 
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                      : 'border-gray-300 dark:border-gray-600'
-                  }`}
-                >
-                  <Image 
-                    src="/images/payment/mastercard.svg" 
-                    alt="Mastercard" 
-                    width={60} 
-                    height={40} 
-                    className="object-contain max-h-12"
-                  />
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={() => handlePaymentMethodChange('mada')}
-                  className={`p-4 border rounded-lg flex items-center justify-center h-20 ${
-                    paymentMethod === 'mada' 
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                      : 'border-gray-300 dark:border-gray-600'
-                  }`}
-                >
-                  <Image 
-                    src="/images/payment/mada.svg" 
-                    alt="Mada" 
-                    width={60} 
-                    height={40} 
-                    className="object-contain max-h-12"
-                  />
-                </button>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2 space-y-1">
+                    <label htmlFor="cardNumber" className="block text-sm font-medium text-gray-700">Card Number</label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <FaCreditCard className="text-gray-400" />
+                      </div>
+                      <input
+                        type="text"
+                        id="cardNumber"
+                        name="cardNumber"
+                        value={formData.cardNumber}
+                        onChange={handleInputChange}
+                        maxLength="19"
+                        placeholder="1234 5678 9012 3456"
+                        className={`w-full p-3 pl-10 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${formErrors.cardNumber ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                      />
+                    </div>
+                    {formErrors.cardNumber && <div className="text-red-600 text-sm mt-1">{formErrors.cardNumber}</div>}
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label htmlFor="expiryDate" className="block text-sm font-medium text-gray-700">Expiry Date</label>
+                    <input
+                      type="text"
+                      id="expiryDate"
+                      name="expiryDate"
+                      value={formData.expiryDate}
+                      onChange={handleInputChange}
+                      maxLength="5"
+                      placeholder="MM/YY"
+                      className={`w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${formErrors.expiryDate ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                    />
+                    {formErrors.expiryDate && <div className="text-red-600 text-sm mt-1">{formErrors.expiryDate}</div>}
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label htmlFor="cvv" className="block text-sm font-medium text-gray-700">CVV</label>
+                    <input
+                      type="text"
+                      id="cvv"
+                      name="cvv"
+                      value={formData.cvv}
+                      onChange={handleInputChange}
+                      maxLength="4"
+                      placeholder="123"
+                      className={`w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${formErrors.cvv ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
+                    />
+                    {formErrors.cvv && <div className="text-red-600 text-sm mt-1">{formErrors.cvv}</div>}
+                  </div>
+                </div>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                <button
-                  type="button"
-                  onClick={() => handlePaymentMethodChange('stcpay')}
-                  className={`p-4 border rounded-lg flex items-center justify-center h-20 ${
-                    paymentMethod === 'stcpay' 
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                      : 'border-gray-300 dark:border-gray-600'
-                  }`}
-                >
-                  <Image 
-                    src="/images/payment/stcpay.svg" 
-                    alt="STC Pay" 
-                    width={60} 
-                    height={40} 
-                    className="object-contain max-h-12"
-                  />
-                </button>
+              <div className="mt-6 border-t border-gray-200 pt-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Order Summary</h3>
+                <div className="flex justify-between items-center py-2">
+                  <span className="text-gray-700">{selectedPlan?.name} Plan</span>
+                  <span className="font-medium">${selectedPlan?.price}</span>
+                </div>
                 
-                <button
-                  type="button"
-                  onClick={() => handlePaymentMethodChange('paypal')}
-                  className={`p-4 border rounded-lg flex items-center justify-center h-20 ${
-                    paymentMethod === 'paypal' 
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                      : 'border-gray-300 dark:border-gray-600'
-                  }`}
-                >
-                  <Image 
-                    src="/images/payment/paypal.svg" 
-                    alt="PayPal" 
-                    width={60} 
-                    height={40} 
-                    className="object-contain max-h-12"
-                  />
-                </button>
+                {/* Coupon Section */}
+                <div className="my-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Have a coupon?</h4>
+                  <div className="flex">
+                    <input
+                      type="text"
+                      className="flex-grow p-2 border border-gray-300 rounded-l-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      placeholder="Enter coupon code"
+                      value={couponCode}
+                      onChange={handleCouponChange}
+                    />
+                    <button
+                      type="button"
+                      className={`px-4 py-2 rounded-r-md font-medium ${isApplyingCoupon || !couponCode.trim() ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                      onClick={validateCoupon}
+                      disabled={isApplyingCoupon || !couponCode.trim()}
+                    >
+                      {isApplyingCoupon ? (
+                        <span className="flex items-center">
+                          <FaSpinner className="animate-spin mr-1" size={14} />
+                          Applying
+                        </span>
+                      ) : 'Apply'}
+                    </button>
+                  </div>
+                  
+                  {appliedCoupon && (
+                    <div className="mt-2 text-sm flex items-center text-green-600">
+                      <FaCheckCircle className="mr-1" size={14} />
+                      <span>Coupon &quot;{appliedCoupon.code}&quot; applied: {appliedCoupon.discount}% off</span>
+                    </div>
+                  )}
+                </div>
                 
-                <button
-                  type="button"
-                  onClick={() => handlePaymentMethodChange('bank_transfer')}
-                  className={`p-4 border rounded-lg flex items-center justify-center h-20 ${
-                    paymentMethod === 'bank_transfer' 
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                      : 'border-gray-300 dark:border-gray-600'
-                  }`}
-                >
-                  <Image 
-                    src="/images/payment/bank.svg" 
-                    alt="Bank Transfer" 
-                    width={60} 
-                    height={40} 
-                    className="object-contain max-h-12"
-                  />
-                </button>
-              </div>
-              
-              <button
-                type="button"
-                onClick={handleCheckout}
-                disabled={isLoading}
-                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md shadow-sm font-cairo disabled:bg-blue-400 transition-colors flex items-center justify-center"
-              >
-                {isLoading ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    {isRtl ? 'جاري المعالجة...' : 'Processing...'}
-                  </>
-                ) : (
-                  isRtl ? 'إتمام الدفع' : 'Complete Payment'
+                {(appliedCoupon || discount > 0) && (
+                  <div className="flex justify-between items-center py-2 text-green-600">
+                    <span>Discount</span>
+                    <span>-${(selectedPlan?.price * ((appliedCoupon?.discount || discount) / 100)).toFixed(2)}</span>
+                  </div>
                 )}
-              </button>
-            </div>
-          </div>
-          
-          {/* Order Summary */}
-          <div className="lg:col-span-1">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 sticky top-6">
-              <h2 className="text-xl font-bold font-cairo text-gray-900 dark:text-white mb-4">
-                {isRtl ? 'ملخص الطلب' : 'Order Summary'}
-              </h2>
-              
-              <div className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-4">
-                <div className="flex justify-between mb-2">
-                  <span className="text-gray-600 dark:text-gray-300 font-cairo">
-                    {selectedPlan.name}
-                  </span>
-                  <span className="text-gray-900 dark:text-white font-medium">
-                    <CurrencySymbol /> {selectedPlan.price.toFixed(2)}
-                  </span>
+                
+                <div className="flex justify-between items-center py-3 border-t border-gray-200 mt-2 font-bold text-lg">
+                  <span>Total</span>
+                  <span>${calculateTotal()}</span>
                 </div>
                 
-                {discount > 0 && (
-                  <div className="flex justify-between mb-2 text-green-600 dark:text-green-400">
-                    <span className="font-cairo">
-                      {isRtl ? 'خصم' : 'Discount'}
-                    </span>
-                    <span>
-                      - <CurrencySymbol /> {discount.toFixed(2)}
-                    </span>
+                {promoCode && (
+                  <div className="mt-2 p-2 bg-blue-50 text-blue-700 text-sm rounded-md">
+                    Promo code <span className="font-medium">{promoCode}</span> applied!
                   </div>
                 )}
               </div>
               
-              <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mb-6">
-                <div className={`flex justify-between mb-2 ${isRtl ? 'flex-row-reverse' : ''}`}>
-                  <span className="text-lg font-bold text-gray-900 dark:text-white font-cairo">
-                    {isRtl ? 'الإجمالي المقدر' : 'Est. Total'}
+              <button 
+                type="submit" 
+                className={`w-full mt-6 py-3 px-4 rounded-md font-semibold text-white ${isLoading || isProcessing ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 transition-colors'}`}
+                disabled={isLoading || isProcessing}
+              >
+                {isLoading || isProcessing ? (
+                  <span className="flex items-center justify-center">
+                    <FaSpinner className="animate-spin mr-2" />
+                    Processing Payment...
                   </span>
-                  <span className={`text-lg font-bold text-gray-900 dark:text-white flex items-center ${isRtl ? 'flex-row-reverse' : 'flex-row'}`}>
-                    <CurrencySymbol className="text-sm" />
-                    <span>{total.toFixed(2)}</span>
-                  </span>
-                </div>
-              </div>
-              
-              <div className="mb-4">
-                <label className="block text-gray-700 dark:text-gray-300 mb-2 font-cairo">
-                  {isRtl ? 'هل لديك رمز ترويجي؟' : 'Have a promo code?'}
-                </label>
-                <div className="flex">
-                  <input
-                    type="text"
-                    value={promoCode}
-                    onChange={(e) => setPromoCode(e.target.value)}
-                    className={`flex-grow px-4 py-2 border border-gray-300 dark:border-gray-600 ${isRtl ? 'rounded-r-md' : 'rounded-l-md'} bg-white dark:bg-gray-700 text-gray-900 dark:text-white`}
-                    placeholder={isRtl ? 'أدخل الرمز' : 'Enter code'}
-                  />
-                  <button
-                    type="button"
-                    onClick={validatePromoCode}
-                    disabled={isLoading || !promoCode.trim()}
-                    className={`px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium ${isRtl ? 'rounded-l-md' : 'rounded-r-md'} shadow-sm font-cairo disabled:bg-blue-400`}
-                  >
-                    {isRtl ? 'تطبيق' : 'Apply'}
-                  </button>
-                </div>
-                {promoCodeMessage && (
-                  <p className={`mt-2 text-sm ${promoCodeValid ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                    {promoCodeMessage}
-                  </p>
-                )}
-              </div>
-            </div>
+                ) : 'Complete Payment'}
+              </button>
+            </form>
           </div>
         </div>
       </div>
     </div>
   );
-}
+};
+
+export default CheckoutForm;
