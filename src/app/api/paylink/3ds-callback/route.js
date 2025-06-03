@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db/config';
-import { complete3DSecureAuthentication, getInvoice } from '@/lib/paylink/api';
+import { complete3DSecureAuthentication, getInvoice, getTransactionByNumber } from '@/lib/paylink/api';
 import PAYLINK_CONFIG from '@/lib/paylink/config';
 
 /**
@@ -20,6 +20,9 @@ function getBaseUrl(request) {
   if (process.env.NGROK_URL) {
     baseUrl = process.env.NGROK_URL;
     console.log('Using NGROK URL for redirect:', baseUrl);
+  } else if (process.env.NEXT_PUBLIC_BASE_URL) {
+    baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    console.log('Using NEXT_PUBLIC_BASE_URL for redirect:', baseUrl);
   } else if (process.env.NEXT_PUBLIC_APP_URL) {
     baseUrl = process.env.NEXT_PUBLIC_APP_URL;
     console.log('Using APP_URL for redirect:', baseUrl);
@@ -129,17 +132,37 @@ export async function POST(request) {
     // If not found directly, try to extract from MD parameter
     if (!transactionNo && callbackData.MD) {
       try {
-        if (callbackData.MD.includes('transactionNo')) {
+        // Try URL decoding first
+        const decodedMD = decodeURIComponent(callbackData.MD);
+        
+        // Check if it's JSON
+        if (decodedMD.startsWith('{') && decodedMD.endsWith('}')) {
+          try {
+            // Try to parse MD as JSON
+            const mdObj = JSON.parse(decodedMD);
+            transactionNo = mdObj.transactionNo || mdObj.orderNumber;
+            console.log('Extracted transaction number from JSON MD:', transactionNo);
+          } catch (jsonError) {
+            console.log('MD is not valid JSON despite appearance', jsonError.message);
+          }
+        } else if (callbackData.MD.includes('transactionNo')) {
           // Try to parse MD as JSON
-          const mdObj = JSON.parse(callbackData.MD);
-          transactionNo = mdObj.transactionNo || mdObj.orderNumber;
+          try {
+            const mdObj = JSON.parse(callbackData.MD);
+            transactionNo = mdObj.transactionNo || mdObj.orderNumber;
+            console.log('Extracted transaction number from raw JSON MD:', transactionNo);
+          } catch (e) {
+            console.log('Could not parse MD as JSON despite including transactionNo', e.message);
+          }
         } else {
           // MD might be the transaction number itself
-          transactionNo = callbackData.MD;
+          transactionNo = decodedMD;
+          console.log('Using decoded MD directly as transaction number:', transactionNo);
         }
       } catch (e) {
-        // If parsing fails, use MD directly
+        // If decoding fails, use MD directly
         transactionNo = callbackData.MD;
+        console.log('Using raw MD directly as transaction number:', transactionNo);
       }
     }
     
@@ -150,6 +173,7 @@ export async function POST(request) {
       const matches = url.match(/orderNumber=([\w-]+)/i) || url.match(/transactionNo=([\w-]+)/i);
       if (matches && matches[1]) {
         transactionNo = matches[1];
+        console.log('Extracted transaction number from URL parameters:', transactionNo);
       }
     }
     
@@ -166,30 +190,97 @@ export async function POST(request) {
     try {
       console.log('Sending 3DS completion data to Paylink (sanitized):', {
         PaRes: paRes ? '[PRESENT]' : '[MISSING]',
-        MD: callbackData.MD || '[MISSING]',
-        Environment: PAYLINK_CONFIG.ENVIRONMENT || 'unknown'
+        MD: callbackData.MD ? '[PRESENT]' : '[MISSING]',
+        transactionNo: transactionNo || '[MISSING]',
+        Environment: PAYLINK_CONFIG.IS_PRODUCTION ? 'production' : 'test'
       });
 
       transactionData = await complete3DSecureAuthentication({
         PaRes: paRes,
-        MD: callbackData.MD
+        MD: callbackData.MD,
+        transactionNo: transactionNo
       });
       
       console.log('3DS authentication response from Paylink:', {
         status: transactionData?.status,
         transactionNo: transactionData?.transactionNo || 'n/a',
         success: transactionData?.success,
+        hasRedirectUrl: !!transactionData?.redirectUrl,
+        statusCode: transactionData?.statusCode,
         fullResponse: JSON.stringify(transactionData)
       });
 
+      // If 3DS authentication failed, try to get transaction details to provide better error info
+      if (!transactionData.success && transactionNo) {
+        try {
+          console.log('3DS authentication failed, checking transaction status');
+          const transactionStatus = await getTransactionByNumber(transactionNo);
+          console.log('Transaction status check result:', {
+            success: transactionStatus?.success,
+            status: transactionStatus?.status,
+            statusCode: transactionStatus?.statusCode,
+            message: transactionStatus?.message
+          });
+          
+          // Enhance the transaction data with status information
+          transactionData.statusCode = transactionStatus.statusCode || transactionData.statusCode;
+          transactionData.status = transactionStatus.status || transactionData.status;
+          transactionData.message = transactionStatus.message || transactionData.message;
+          
+          // If transaction check returned a redirect URL, use it
+          if (transactionStatus.redirectUrl) {
+            transactionData.redirectUrl = transactionStatus.redirectUrl;
+          }
+        } catch (txnCheckError) {
+          console.error('Error checking transaction status:', txnCheckError);
+        }
+      }
     } catch (error) {
       console.error('Error completing 3D Secure authentication:', error);
+      
+      // Try to create a structured error response with redirect
+      const errorPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent(error.message)}&code=500`;
+      const baseUrl = getBaseUrl(request);
+      
+      if (baseUrl) {
+        return NextResponse.redirect(`${baseUrl}${errorPath}`);
+      }
+      
       return NextResponse.json(
         { error: 'Failed to complete 3D Secure authentication', details: error.message },
         { status: 500 }
       );
     }
 
+    // Check if we have a direct redirect URL from the 3DS completion
+    if (transactionData.redirectUrl) {
+      console.log('Using direct redirect URL from 3DS completion:', transactionData.redirectUrl);
+      return NextResponse.redirect(transactionData.redirectUrl);
+    }
+    
+    // Handle specific error codes by redirecting to appropriate error page
+    if (!transactionData.success) {
+      const statusCode = transactionData.statusCode || 500;
+      let errorMessage = transactionData.message || 'Payment processing error';
+      
+      // Map common Paylink error codes to user-friendly messages
+      if (statusCode === 451 || statusCode === 452) {
+        errorMessage = 'Payment declined by bank';
+      } else if (statusCode === 412) {
+        errorMessage = 'Payment processing error';
+      }
+      
+      const errorPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent(errorMessage)}&code=${statusCode}`;
+      const baseUrl = getBaseUrl(request);
+      
+      if (baseUrl) {
+        console.log(`Redirecting to error page due to 3DS error (${statusCode}):`, `${baseUrl}${errorPath}`);
+        return NextResponse.redirect(`${baseUrl}${errorPath}`);
+      } else {
+        return NextResponse.redirect(new URL(errorPath, request.url));
+      }
+    }
+    
     // Extract transaction data from the completion result
     const completionSuccess = transactionData.success === true || transactionData.orderStatus === 'COMPLETED';
     const transactionId = transactionData.invoiceId || transactionData.id || transactionData.transactionNo;
@@ -219,38 +310,28 @@ export async function POST(request) {
         try {
           let transactionRecord = null;
           
-          // Look up the transaction using multiple possible identifiers
-          // This is critical for sandbox testing where IDs may be inconsistent
+          // Look up the transaction using transaction_id
+          // Only use columns that exist in the database schema
           const transactionResults = await executeQuery(`
             SELECT * FROM payment_transactions 
-            WHERE transaction_id = ? 
-               OR transaction_no = ? 
-               OR order_number = ? 
-               OR paylink_invoice_id = ?
-          `, [resultTxnId, resultTxnId, resultTxnId, resultTxnId]);
+            WHERE transaction_id = ?
+          `, [resultTxnId]);
           
-          // If not found by transaction_id, try to look up by paylink_invoice_id if it exists
+          // If not found by transaction_id, try using the alternative transaction ID
           if (transactionResults.length === 0 && transactionId) {
-            // First check if paylink_invoice_id column exists
             try {
-              const tableInfo = await executeQuery(`DESCRIBE payment_transactions`);
-              const hasInvoiceIdField = tableInfo.some(col => 
-                col.Field === 'paylink_invoice_id' || col.Field === 'invoice_id'
-              );
+              // Try again with the invoice ID as another attempt
+              const invoiceResults = await executeQuery(`
+                SELECT * FROM payment_transactions 
+                WHERE transaction_id = ?
+              `, [transactionId]);
               
-              if (hasInvoiceIdField) {
-                const invoiceResults = await executeQuery(`
-                  SELECT * FROM payment_transactions 
-                  WHERE paylink_invoice_id = ? OR invoice_id = ?
-                `, [transactionId, transactionId]);
-                
-                if (invoiceResults.length > 0) {
-                  // Use the first result
-                  transactionResults.push(invoiceResults[0]);
-                }
+              if (invoiceResults.length > 0) {
+                // Use the first result
+                transactionResults.push(invoiceResults[0]);
               }
-            } catch (describeError) {
-              console.error('Error checking table structure:', describeError);
+            } catch (queryError) {
+              console.error('Error trying alternative transaction lookup:', queryError);
             }
           }
           

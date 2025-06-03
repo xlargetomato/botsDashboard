@@ -95,11 +95,11 @@ export async function POST(request) {
       }
     }
 
-    // Find the payment intent record
+    // Find the payment intent record - using correct table name 'payment_intent' (singular)
     let paymentIntent;
     if (paymentIntentId) {
       const paymentIntentResults = await executeQuery(
-        'SELECT * FROM payment_intents WHERE id = ?',
+        'SELECT * FROM payment_intent WHERE id = ?',
         [paymentIntentId]
       );
       
@@ -108,12 +108,35 @@ export async function POST(request) {
       }
     } else if (transactionId) {
       const paymentIntentResults = await executeQuery(
-        'SELECT * FROM payment_intents WHERE transaction_id = ?',
+        'SELECT * FROM payment_intent WHERE transaction_id = ?',
         [transactionId]
       );
       
       if (paymentIntentResults && paymentIntentResults.length > 0) {
         paymentIntent = paymentIntentResults[0];
+      }
+    }
+    
+    // If still not found, try getting it from payment_transactions
+    if (!paymentIntent && transactionId) {
+      try {
+        const txnResults = await executeQuery(
+          'SELECT payment_intent_id FROM payment_transactions WHERE transaction_id = ?',
+          [transactionId]
+        );
+        
+        if (txnResults && txnResults.length > 0 && txnResults[0].payment_intent_id) {
+          const intentResults = await executeQuery(
+            'SELECT * FROM payment_intent WHERE id = ?',
+            [txnResults[0].payment_intent_id]
+          );
+          
+          if (intentResults && intentResults.length > 0) {
+            paymentIntent = intentResults[0];
+          }
+        }
+      } catch (txnLookupError) {
+        console.error('Error looking up payment intent via transaction:', txnLookupError);
       }
     }
 
@@ -146,7 +169,23 @@ export async function POST(request) {
       // Continue without transaction update
     }
 
-    // Apply promo code if used
+    // Verify that we have a valid payment confirmation from Paylink or other gateway
+    const paymentConfirmed = paylinkVerified || paymentIntent.status === 'completed';
+    
+    // Only proceed with subscription creation if payment is confirmed
+    if (!paymentConfirmed) {
+      console.error('Payment not confirmed:', { 
+        paylinkVerified, 
+        paylinkStatus, 
+        paymentIntentStatus: paymentIntent.status 
+      });
+      return NextResponse.json(
+        { error: 'Payment not confirmed', details: 'The payment has not been confirmed by the payment gateway' },
+        { status: 400 }
+      );
+    }
+    
+    // Apply promo code if used - only do this after confirmed payment
     if (paymentIntent.promo_code) {
       try {
         // Update promo code usage - we only do this AFTER confirmed payment
@@ -159,27 +198,54 @@ export async function POST(request) {
       }
     }
 
-    // Calculate subscription dates based on subscription type
-    const startDate = new Date();
+    // Update payment intent status to completed if needed
+    if (paymentIntent.status !== 'completed') {
+      try {
+        await executeQuery(
+          'UPDATE payment_intent SET status = ?, updated_at = NOW() WHERE id = ?',
+          ['completed', paymentIntent.id]
+        );
+        // Update our local copy of the payment intent
+        paymentIntent.status = 'completed';
+      } catch (updateError) {
+        console.warn('Error updating payment intent status (non-fatal):', updateError.message);
+      }
+    }
+
+    // Calculate subscription dates properly
+    const now = new Date();
+    const startDate = new Date(now);
     const expireDate = new Date(startDate);
     
+    // Calculate expiration date based on subscription type
+    console.log('Calculating dates based on subscription type:', paymentIntent.subscription_type);
+    
     if (paymentIntent.subscription_type === 'weekly') {
-      expireDate.setDate(expireDate.getDate() + 7);
+      expireDate.setDate(startDate.getDate() + 7);
     } else if (paymentIntent.subscription_type === 'monthly') {
-      expireDate.setMonth(expireDate.getMonth() + 1);
+      expireDate.setMonth(startDate.getMonth() + 1);
     } else if (paymentIntent.subscription_type === 'yearly') {
-      expireDate.setFullYear(expireDate.getFullYear() + 1);
+      expireDate.setFullYear(startDate.getFullYear() + 1);
     } else {
-      // Default to monthly if type is unrecognized
-      expireDate.setMonth(expireDate.getMonth() + 1);
+      // Default to monthly if type is unknown
+      console.warn('Unknown subscription type, defaulting to monthly:', paymentIntent.subscription_type);
+      expireDate.setMonth(startDate.getMonth() + 1);
     }
     
     // Format dates for MySQL
     const formattedStartDate = startDate.toISOString().slice(0, 19).replace('T', ' ');
     const formattedExpireDate = expireDate.toISOString().slice(0, 19).replace('T', ' ');
+    
+    console.log('Subscription period:', {
+      type: paymentIntent.subscription_type,
+      startDate: formattedStartDate,
+      expireDate: formattedExpireDate,
+      duration: Math.floor((expireDate - startDate) / (1000 * 60 * 60 * 24)) + ' days'
+    });
 
-    // NOW create the subscription - only after payment is confirmed
     const subscriptionId = uuidv4();
+
+    // Create the subscription now that payment is confirmed
     try {
       await executeQuery(
         `INSERT INTO subscriptions (
@@ -193,17 +259,19 @@ export async function POST(request) {
           paymentIntent.user_id,
           paymentIntent.plan_id,
           paymentIntent.subscription_type,
-          paymentIntent.amount_paid,
+          paymentIntent.amount, // Use amount from payment_intent table
           paymentIntent.payment_method || 'paylink',
           paymentIntent.transaction_id,
           paymentIntent.promo_code || null,
           paymentIntent.discount_amount || 0,
-          'active', // Set status as active immediately since payment is confirmed
+          'active',
           formattedStartDate,
           formattedExpireDate,
-          true // payment_confirmed flag set to true
+          true
         ]
       );
+      console.log('Subscription created with ID:', subscriptionId);
+      console.log('Start Date:', formattedStartDate, 'Expire Date:', formattedExpireDate);
     } catch (subError) {
       console.error('Error creating subscription:', subError);
       return NextResponse.json(
@@ -222,11 +290,7 @@ export async function POST(request) {
       console.warn('Error updating payment intent (non-fatal):', updateError.message);
     }
 
-    // Calculate remaining time for detailed information
-    const now = new Date();
     const remainingMs = expireDate - now;
-    
-    // Calculate time units
     const minutes = Math.floor(remainingMs / (1000 * 60));
     const hours = Math.floor(remainingMs / (1000 * 60 * 60));
     const days = Math.floor(remainingMs / (1000 * 60 * 60 * 24));
@@ -240,7 +304,6 @@ export async function POST(request) {
       secondaryUnit: 'hours'
     };
 
-    // Get plan details for the response
     let planDetails = null;
     try {
       const planResults = await executeQuery(
@@ -255,7 +318,6 @@ export async function POST(request) {
       console.warn('Error fetching plan details (non-fatal):', planError.message);
     }
 
-    // Fetch the created subscription
     const createdSubscription = await executeQuery(
       'SELECT * FROM subscriptions WHERE id = ?',
       [subscriptionId]
@@ -268,7 +330,6 @@ export async function POST(request) {
       );
     }
     
-    // Enhance the subscription with remaining time information and plan details
     const enhancedSubscription = {
       ...createdSubscription[0],
       remaining_time: `${days} days`,

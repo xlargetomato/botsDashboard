@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { complete3DSecureAuthentication, getTransactionByNumber } from '@/lib/paylink/api';
+import { getTransactionByNumber, complete3DSecureAuthentication } from '@/lib/paylink/api';
 import { executeQuery } from '@/lib/db/config';
-import { PAYLINK_CONFIG } from '@/lib/paylink/config';
+import PAYLINK_CONFIG from '@/lib/paylink/config';
 
 /**
  * Helper function to get the base URL for redirects
@@ -52,7 +52,7 @@ export async function POST(request) {
     const md = formData.get('MD');
     
     console.log('3DS return data received:', {
-      paRes: paRes ? `${paRes.substring(0, 10)}... [truncated]` : undefined,
+      paRes: paRes ? 'PRESENT (truncated)' : undefined,
       md: md ? `${md.substring(0, 10)}... [truncated]` : undefined
     });
     
@@ -68,102 +68,110 @@ export async function POST(request) {
       }
     }
     
-    // Complete 3D Secure authentication with Paylink
-    const completionResult = await complete3DSecureAuthentication({
-      PaRes: paRes,
-      MD: md
-    });
-    
-    console.log('3DS completion result:', completionResult);
-    
-    // If completion returned a specific redirect URL, use it
-    if (completionResult.redirectUrl) {
-      console.log('Redirecting to URL from 3DS completion:', completionResult.redirectUrl);
-      return NextResponse.redirect(completionResult.redirectUrl);
-    }
-    
-    // Extract transaction number from completion result or MD
+    // Extract transaction number from MD
     let transactionNo;
-    if (completionResult.transactionNo || completionResult.orderNumber) {
-      transactionNo = completionResult.transactionNo || completionResult.orderNumber;
-    } else {
-      // Try to extract from MD if it's JSON
+    try {
+      const decoded = decodeURIComponent(md);
       try {
-        const decodedMD = decodeURIComponent(md);
-        const mdData = JSON.parse(decodedMD);
-        transactionNo = mdData.transactionNo || mdData.orderNumber;
-      } catch (e) {
-        // If parsing fails, use MD directly as it might be the transaction number
-        transactionNo = md;
+        const mdObj = JSON.parse(decoded);
+        transactionNo = mdObj.transactionNo || mdObj.orderNumber || decoded;
+      } catch {
+        transactionNo = decoded;
       }
+    } catch {
+      transactionNo = md;
     }
-    
+
     if (!transactionNo) {
-      console.error('Could not determine transaction number from 3DS completion');
       const errorPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent('Could not identify payment transaction')}`;
       const baseUrl = getBaseUrl(request);
+      return baseUrl ? NextResponse.redirect(`${baseUrl}${errorPath}`)
+                     : NextResponse.redirect(new URL(errorPath, request.url));
+    }
+    
+    // Complete 3D Secure authentication with Paylink API
+    console.log('Completing 3DS authentication with transaction number:', transactionNo);
+    const authResult = await complete3DSecureAuthentication({
+      PaRes: paRes,
+      MD: md,
+      transactionNo: transactionNo
+    });
+    
+    console.log('3DS authentication result:', {
+      success: authResult.success,
+      status: authResult.status,
+      message: authResult.message,
+      statusCode: authResult.statusCode
+    });
+    
+    // Give Paylink a moment to finalize the invoice before querying
+    await new Promise(r => setTimeout(r, 2000));
+
+    // Verify transaction status
+    const verification = await getTransactionByNumber(transactionNo);
+    console.log('Paylink invoice verification:', {
+      success: verification.success,
+      status: verification.status,
+      statusCode: verification.statusCode,
+      message: verification.message
+    });
+
+    // Update database with transaction status if possible
+    try {
+      const transactionResults = await executeQuery(`
+        SELECT * FROM payment_transactions 
+        WHERE transaction_id = ?
+      `, [transactionNo]);
       
-      if (baseUrl) {
-        return NextResponse.redirect(`${baseUrl}${errorPath}`);
-      } else {
-        return NextResponse.redirect(new URL(errorPath, request.url));
-      }
-    }
-    
-    // Wait a short time for Paylink to process the payment
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Verify payment status
-    const paymentStatusResult = await getTransactionByNumber(transactionNo);
-    
-    console.log('Payment status check result:', paymentStatusResult);
-    
-    // If payment verification returned a redirect URL, use it
-    if (paymentStatusResult.redirectUrl) {
-      console.log('Redirecting to URL from payment verification:', paymentStatusResult.redirectUrl);
-      return NextResponse.redirect(paymentStatusResult.redirectUrl);
-    }
-    
-    // Update transaction in database
-    if (transactionNo) {
-      try {
-        const paymentStatus = paymentStatusResult.status === 'paid' || 
-                             paymentStatusResult.status === 'completed' ? 'completed' : 
-                             paymentStatusResult.status === 'failed' ? 'failed' : 'pending';
+      if (transactionResults.length > 0) {
+        const transactionRecord = transactionResults[0];
+        const isPaid = verification.status === 'paid' || verification.status === 'completed';
         
         await executeQuery(`
           UPDATE payment_transactions 
           SET status = ?, 
-              updated_at = NOW(),
-              paylink_response = ?
-          WHERE transaction_id = ? OR transaction_no = ? OR paylink_reference = ? OR order_number = ?
+              payment_gateway_response = ?,
+              updated_at = NOW()
+          WHERE id = ?
         `, [
-          paymentStatus,
-          JSON.stringify(paymentStatusResult),
-          transactionNo, transactionNo, transactionNo, transactionNo
+          isPaid ? 'completed' : 'failed',
+          JSON.stringify({ 
+            verification: verification,
+            authResult: authResult
+          }),
+          transactionRecord.id
         ]);
-      } catch (dbError) {
-        console.error('Failed to update transaction record:', dbError);
+        
+        // If payment is successful and we have a subscription ID, update it
+        if (isPaid && transactionRecord.subscription_id) {
+          await executeQuery(`
+            UPDATE subscriptions
+            SET status = 'active',
+                payment_confirmed = TRUE,
+                updated_at = NOW()
+            WHERE id = ?
+          `, [transactionRecord.subscription_id]);
+        }
       }
+    } catch (dbError) {
+      console.error('Database error while updating transaction:', dbError);
     }
-    
-    // Determine redirect path based on payment status
+
+    // Determine the redirect path based on verification result
     let redirectPath;
-    if (paymentStatusResult.status === 'paid' || paymentStatusResult.status === 'completed') {
+    if (authResult.success && (verification.status === 'paid' || verification.status === 'completed')) {
       redirectPath = `/dashboard/client/subscriptions/payment-status?status=success&txnId=${encodeURIComponent(transactionNo)}`;
-    } else if (paymentStatusResult.status === 'failed') {
-      redirectPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent(paymentStatusResult.message || 'Payment failed')}&txnId=${encodeURIComponent(transactionNo)}&code=${encodeURIComponent(paymentStatusResult.statusCode || '')}`;
+    } else if (verification.statusCode === 451 || verification.statusCode === 452) {
+      redirectPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent('Payment declined by bank')}&code=${verification.statusCode}&txnId=${encodeURIComponent(transactionNo)}`;
+    } else if (verification.statusCode === 412 || !authResult.success) {
+      redirectPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent(verification.message || authResult.message || 'Payment processing error')}&code=${verification.statusCode || authResult.statusCode || 412}&txnId=${encodeURIComponent(transactionNo)}`;
     } else {
-      // Default to pending
       redirectPath = `/dashboard/client/subscriptions/payment-status?status=pending&txnId=${encodeURIComponent(transactionNo)}`;
     }
-    
+
     const baseUrl = getBaseUrl(request);
-    if (baseUrl) {
-      return NextResponse.redirect(`${baseUrl}${redirectPath}`);
-    } else {
-      return NextResponse.redirect(new URL(redirectPath, request.url));
-    }
+    return baseUrl ? NextResponse.redirect(`${baseUrl}${redirectPath}`)
+                   : NextResponse.redirect(new URL(redirectPath, request.url));
   } catch (error) {
     console.error('Error processing 3DS return:', error);
     
@@ -186,6 +194,35 @@ export async function GET(request) {
   try {
     console.log('3DS return GET handler called');
     const url = new URL(request.url);
+    const params = Object.fromEntries(url.searchParams);
+    
+    // Check for error parameters in the URL
+    if (params.statusCode && params.statusCode !== '200' && params.statusCode !== '100') {
+      console.error(`3DS return failed with status: ${params.statusCode}, message: ${params.msg || 'Unknown error'}`);  
+      
+      // Handle specific error codes with appropriate user-friendly messages
+      let errorReason = '';
+      const statusCode = parseInt(params.statusCode);
+      
+      if (statusCode === 412) {
+        errorReason = 'Payment+server+error';
+        console.log('Detected Paylink server error (412)');
+      } else if (statusCode === 451) {
+        errorReason = 'Payment+declined';
+        console.log('Detected payment declined error (451)');
+      } else {
+        errorReason = encodeURIComponent(params.msg || 'Payment processing error');
+      }
+      
+      const errorPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${errorReason}`;
+      const baseUrl = getBaseUrl(request);
+      
+      if (baseUrl) {
+        return NextResponse.redirect(`${baseUrl}${errorPath}`);
+      } else {
+        return NextResponse.redirect(new URL(errorPath, request.url));
+      }
+    }
     
     // Extract PaRes and MD from query parameters
     const paRes = url.searchParams.get('PaRes');
@@ -215,103 +252,46 @@ export async function GET(request) {
       }
     }
     
-    // Complete 3D Secure authentication with Paylink
-    const completionResult = await complete3DSecureAuthentication({
-      PaRes: finalPaRes,
-      MD: finalMD
-    });
-    
-    console.log('3DS completion result (GET):', completionResult);
-    
-    // Rest of the logic is identical to POST handler
-    // If completion returned a specific redirect URL, use it
-    if (completionResult.redirectUrl) {
-      console.log('Redirecting to URL from 3DS completion:', completionResult.redirectUrl);
-      return NextResponse.redirect(completionResult.redirectUrl);
-    }
-    
-    // Extract transaction number from completion result or MD
+    // Complete 3D Secure authentication with Paylink (browser has already posted PaRes to Paylink)
+    // Instead of calling undocumented server-side endpoints, just verify the payment.
     let transactionNo;
-    if (completionResult.transactionNo || completionResult.orderNumber) {
-      transactionNo = completionResult.transactionNo || completionResult.orderNumber;
-    } else {
-      // Try to extract from MD if it's JSON
+    try {
+      const decoded = decodeURIComponent(finalMD);
       try {
-        const decodedMD = decodeURIComponent(finalMD);
-        const mdData = JSON.parse(decodedMD);
-        transactionNo = mdData.transactionNo || mdData.orderNumber;
-      } catch (e) {
-        // If parsing fails, use MD directly as it might be the transaction number
-        transactionNo = finalMD;
+        const mdObj = JSON.parse(decoded);
+        transactionNo = mdObj.transactionNo || mdObj.orderNumber || decoded;
+      } catch {
+        transactionNo = decoded;
       }
+    } catch {
+      transactionNo = finalMD;
     }
-    
+
     if (!transactionNo) {
-      console.error('Could not determine transaction number from 3DS completion (GET)');
       const errorPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent('Could not identify payment transaction')}`;
       const baseUrl = getBaseUrl(request);
-      
-      if (baseUrl) {
-        return NextResponse.redirect(`${baseUrl}${errorPath}`);
-      } else {
-        return NextResponse.redirect(new URL(errorPath, request.url));
-      }
+      return baseUrl ? NextResponse.redirect(`${baseUrl}${errorPath}`)
+                     : NextResponse.redirect(new URL(errorPath, request.url));
     }
-    
-    // Wait a short time for Paylink to process the payment
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Verify payment status
-    const paymentStatusResult = await getTransactionByNumber(transactionNo);
-    
-    console.log('Payment status check result (GET):', paymentStatusResult);
-    
-    // If payment verification returned a redirect URL, use it
-    if (paymentStatusResult.redirectUrl) {
-      console.log('Redirecting to URL from payment verification:', paymentStatusResult.redirectUrl);
-      return NextResponse.redirect(paymentStatusResult.redirectUrl);
-    }
-    
-    // Update transaction in database
-    if (transactionNo) {
-      try {
-        const paymentStatus = paymentStatusResult.status === 'paid' || 
-                             paymentStatusResult.status === 'completed' ? 'completed' : 
-                             paymentStatusResult.status === 'failed' ? 'failed' : 'pending';
-        
-        await executeQuery(`
-          UPDATE payment_transactions 
-          SET status = ?, 
-              updated_at = NOW(),
-              paylink_response = ?
-          WHERE transaction_id = ? OR transaction_no = ? OR paylink_reference = ? OR order_number = ?
-        `, [
-          paymentStatus,
-          JSON.stringify(paymentStatusResult),
-          transactionNo, transactionNo, transactionNo, transactionNo
-        ]);
-      } catch (dbError) {
-        console.error('Failed to update transaction record:', dbError);
-      }
-    }
-    
-    // Determine redirect path based on payment status
+
+    // Give Paylink a moment to finalise the invoice before querying
+    await new Promise(r => setTimeout(r, 2000));
+
+    const verification = await getTransactionByNumber(transactionNo);
+    console.log('Paylink invoice verification:', verification);
+
     let redirectPath;
-    if (paymentStatusResult.status === 'paid' || paymentStatusResult.status === 'completed') {
+    if (verification.status === 'paid' || verification.status === 'completed') {
       redirectPath = `/dashboard/client/subscriptions/payment-status?status=success&txnId=${encodeURIComponent(transactionNo)}`;
-    } else if (paymentStatusResult.status === 'failed') {
-      redirectPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent(paymentStatusResult.message || 'Payment failed')}&txnId=${encodeURIComponent(transactionNo)}&code=${encodeURIComponent(paymentStatusResult.statusCode || '')}`;
+    } else if (verification.status === 'failed') {
+      redirectPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent(verification.message || 'Payment failed')}&txnId=${encodeURIComponent(transactionNo)}`;
     } else {
-      // Default to pending
       redirectPath = `/dashboard/client/subscriptions/payment-status?status=pending&txnId=${encodeURIComponent(transactionNo)}`;
     }
-    
+
     const baseUrl = getBaseUrl(request);
-    if (baseUrl) {
-      return NextResponse.redirect(`${baseUrl}${redirectPath}`);
-    } else {
-      return NextResponse.redirect(new URL(redirectPath, request.url));
-    }
+    return baseUrl ? NextResponse.redirect(`${baseUrl}${redirectPath}`)
+                   : NextResponse.redirect(new URL(redirectPath, request.url));
   } catch (error) {
     console.error('Error processing 3DS return (GET):', error);
     

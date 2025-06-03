@@ -657,7 +657,7 @@ const FixedCheckout = (props) => {
     fetchPlans();
     fetchUserData();
     checkPaylinkConfig();
-  }, [props.plan, props.subscriptionType, router, preSelectedPlan, subscriptionType]); // Added subscriptionType to dependencies for ESLint
+  }, [props.plan, props.subscriptionType, router, preSelectedPlan]); // Removed subscriptionType from dependencies to prevent re-fetching on type change
 
   // Render message component
   const renderMessage = () => {
@@ -685,8 +685,8 @@ const FixedCheckout = (props) => {
     }
 
     return (
-      <div className={`p-4 ${bgColor} border rounded-lg flex items-center mb-6`}>
-        {icon && <div className="mr-3">{icon}</div>}
+      <div className={`p-4 ${bgColor} border rounded-lg flex items-center rtl:flex-row-reverse rtl:text-right mb-6`}>
+        {icon && <div className="rtl:ml-3 ltr:mr-3">{icon}</div>}
         <div>{content}</div>
       </div>
     );
@@ -695,9 +695,9 @@ const FixedCheckout = (props) => {
   // Handle loading state
   if (loading) {
     return (
-      <div className="w-full flex justify-center items-center py-12">
+      <div className="w-full flex justify-center items-center py-12 rtl:flex-row-reverse">
         <FaSpinner className="animate-spin text-blue-600" size={32} />
-        <span className="ml-2 text-gray-600">Loading subscription plans...</span>
+        <span className="rtl:mr-2 ltr:ml-2 text-gray-600 rtl:font-[Cairo]">Loading subscription plans...</span>
       </div>
     );
   }
@@ -749,48 +749,68 @@ const FixedCheckout = (props) => {
   return (
     <div>
       {renderMessage()}
-      <div className={`checkout-container ${isRtl ? 'rtl' : 'ltr'} ${theme === 'dark' ? 'dark' : 'light'}`}>
+      <div className={`checkout-container rtl:text-right rtl:font-[Cairo] ${isRtl ? 'rtl' : 'ltr'} ${theme === 'dark' ? 'dark' : 'light'}`}>
         <EnhancedCheckoutForm 
           {...enhancedProps} 
           renderPeriodSelector={() => (
             <div className="subscription-period-selector mb-6">
-              <h3 className="text-lg font-semibold mb-3 text-gray-800 dark:text-white font-sans cairo-font">
+              <h3 className="text-lg font-semibold mb-3 text-gray-800 dark:text-white rtl:font-[Cairo] rtl:text-right">
                 {t('Subscription Period')}
               </h3>
               
-              <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
-                <button
-                  onClick={() => updateSubscriptionType('weekly')}
-                  className={`flex-1 py-2 px-4 rounded-md transition-all font-sans cairo-font ${
-                    subscriptionType === 'weekly' 
-                      ? 'bg-blue-600 text-white shadow-sm' 
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  {isRtl ? 'أسبوعي' : 'Weekly'}
-                </button>
-                
-                <button
-                  onClick={() => updateSubscriptionType('monthly')}
-                  className={`flex-1 py-2 px-4 rounded-md transition-all font-sans cairo-font ${
-                    subscriptionType === 'monthly' 
-                      ? 'bg-blue-600 text-white shadow-sm' 
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  {isRtl ? 'شهري' : 'Monthly'}
-                </button>
-                
-                <button
-                  onClick={() => updateSubscriptionType('yearly')}
-                  className={`flex-1 py-2 px-4 rounded-md transition-all font-sans cairo-font ${
-                    subscriptionType === 'yearly' 
-                      ? 'bg-blue-600 text-white shadow-sm' 
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  {isRtl ? 'سنوي' : 'Yearly'}
-                </button>
+              <div className="rounded-xl bg-gray-100 dark:bg-gray-800 p-3 shadow-md">
+                <div className="relative flex rtl:flex-row-reverse gap-2 z-10">
+                  <button
+                    onClick={() => updateSubscriptionType('weekly')}
+                    className={`relative flex-1 py-3 px-2 rounded-xl font-medium transition-all duration-300 rtl:font-[Cairo] flex justify-center items-center ${
+                      subscriptionType === 'weekly' 
+                        ? 'text-white' 
+                        : 'text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white'
+                    }`}
+                  >
+                    <span className={`relative z-10 ${subscriptionType === 'weekly' ? 'font-bold' : ''}`}>
+                      {isRtl ? 'أسبوعي' : 'Weekly'}
+                    </span>
+                    {subscriptionType === 'weekly' && (
+                      <span className="absolute inset-0 bg-blue-600 rounded-xl shadow-lg animate-fadeIn" 
+                            style={{animation: 'fadeIn 0.3s ease-out'}}></span>
+                    )}
+                  </button>
+                  
+                  <button
+                    onClick={() => updateSubscriptionType('monthly')}
+                    className={`relative flex-1 py-3 px-2 rounded-xl font-medium transition-all duration-300 rtl:font-[Cairo] flex justify-center items-center ${
+                      subscriptionType === 'monthly' 
+                        ? 'text-white' 
+                        : 'text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white'
+                    }`}
+                  >
+                    <span className={`relative z-10 ${subscriptionType === 'monthly' ? 'font-bold' : ''}`}>
+                      {isRtl ? 'شهري' : 'Monthly'}
+                    </span>
+                    {subscriptionType === 'monthly' && (
+                      <span className="absolute inset-0 bg-blue-600 rounded-xl shadow-lg animate-fadeIn"
+                            style={{animation: 'fadeIn 0.3s ease-out'}}></span>
+                    )}
+                  </button>
+                  
+                  <button
+                    onClick={() => updateSubscriptionType('yearly')}
+                    className={`relative flex-1 py-3 px-2 rounded-xl font-medium transition-all duration-300 rtl:font-[Cairo] flex justify-center items-center ${
+                      subscriptionType === 'yearly' 
+                        ? 'text-white' 
+                        : 'text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white'
+                    }`}
+                  >
+                    <span className={`relative z-10 ${subscriptionType === 'yearly' ? 'font-bold' : ''}`}>
+                      {isRtl ? 'سنوي' : 'Yearly'}
+                    </span>
+                    {subscriptionType === 'yearly' && (
+                      <span className="absolute inset-0 bg-blue-600 rounded-xl shadow-lg animate-fadeIn"
+                            style={{animation: 'fadeIn 0.3s ease-out'}}></span>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           )}

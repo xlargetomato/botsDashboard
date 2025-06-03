@@ -113,22 +113,22 @@ const PAYLINK_CONFIG = {
     
     // 2. Use NGROK URL if available
     if (process.env.NGROK_URL) {
-      return `${process.env.NGROK_URL}/api/paylink/3ds-callback`;
+      return `${process.env.NGROK_URL}/api/paylink/3ds-return`;
     }
     
     // 3. Use APP_URL if available
     if (process.env.NEXT_PUBLIC_APP_URL) {
-      return `${process.env.NEXT_PUBLIC_APP_URL}/api/paylink/3ds-callback`;
+      return `${process.env.NEXT_PUBLIC_APP_URL}/api/paylink/3ds-return`;
     }
 
     // 4. Try to auto-detect URL if in browser environment
     if (typeof window !== 'undefined') {
       const origin = window.location.origin;
-      return `${origin}/api/paylink/3ds-callback`;
+      return `${origin}/api/paylink/3ds-return`;
     }
     
     // 5. Fallback to localhost (will be overridden at runtime with proper origin)
-    return 'http://localhost:3000/api/paylink/3ds-callback';
+    return 'http://localhost:3000/api/paylink/3ds-return';
   })(),
   
   // Default currency

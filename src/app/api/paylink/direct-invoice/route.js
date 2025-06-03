@@ -81,8 +81,9 @@ export async function POST(request) {
     
     // Get subscription details if we have a subscription ID
     let subscription = null;
-    let planName = 'Subscription';
-    let planDescription = 'Premium subscription';
+    let planId = ''; // Added planId variable
+    let planName = '';
+    let planDescription = '';
     let paymentAmount = amount;
     
     if (subscriptionId) {
@@ -103,16 +104,47 @@ export async function POST(request) {
           
           // Fetch plan details if available
           if (subscription.plan_id) {
+            console.log('Looking up plan details for ID:', subscription.plan_id);
             try {
+              // Get ALL plans first to debug
+              const allPlansResults = await executeQuery(`SELECT id, name, description FROM subscription_plans`);
+              console.log('All available plans in database:', allPlansResults);
+              
+              // Now get the specific plan
               const planResults = await executeQuery(
-                `SELECT name, description FROM subscription_plans WHERE id = ?`,
+                `SELECT id, name, description FROM subscription_plans WHERE id = ?`,
                 [subscription.plan_id]
               );
               
+              console.log('Plan lookup results:', planResults);
+              
               if (planResults && planResults.length > 0) {
                 const plan = planResults[0];
-                planName = plan.name || 'Subscription';
-                planDescription = plan.description || 'Premium subscription';
+                planId = plan.id; // Store the actual planId from database
+                
+                // Check if name exists and is not null
+                if (plan.name) {
+                  planName = plan.name;
+                  console.log('Found valid plan name:', planName);
+                } else {
+                  // If name is null/undefined/empty, try to map from the ID
+                  if (planId === '40f38abf-47ff-4990-97f4-73a1198ac1c8') {
+                    planName = 'Tier 3';
+                    console.log('Using hardcoded plan name Tier 3 for this ID');
+                  } else if (planId === 'afa3745-399e-47d5-87ac-6eb2ee933335') {
+                    planName = 'Tier 2';
+                    console.log('Using hardcoded plan name Tier 2 for this ID');
+                  } else if (planId === 'f6a9bc5c-4ec4-44ea-9f3d-50513b5f414d') {
+                    planName = 'Tier 1';
+                    console.log('Using hardcoded plan name Tier 1 for this ID');
+                  } else {
+                    planName = '';
+                    console.log('Could not determine plan name from ID, using empty string');
+                  }
+                }
+                
+                planDescription = plan.description || '';
+                console.log('Final plan details:', { planId, planName, planDescription });
               }
             } catch (planError) {
               console.warn('Error fetching plan details (non-fatal):', planError.message);
@@ -225,70 +257,155 @@ export async function POST(request) {
       
       // Create the invoice using the Paylink service
       const invoiceResult = await createDirectCheckout(checkoutData);
-      
-      // Verify if subscription exists before creating transaction
+      // Create a new payment transaction record
       let subscriptionExists = false;
-      if (subscriptionId) {
-        try {
-          const subscriptionCheck = await executeQuery(`
-            SELECT id FROM subscriptions WHERE id = ?
-          `, [subscriptionId]);
-          subscriptionExists = subscriptionCheck && subscriptionCheck.length > 0;
-          console.log('Subscription check result:', subscriptionExists ? 'Subscription exists' : 'Subscription does not exist');
-          
-          // Log available subscription columns for debugging
-          const subscriptionColumns = await executeQuery('DESCRIBE subscriptions');
-          console.log('Available subscription columns:', subscriptionColumns.map(col => col.Field));
-        } catch (checkError) {
-          console.error('Error checking subscription:', checkError);
-          subscriptionExists = false;
-        }
+      
+      // Generate a guaranteed valid subscription ID
+      const effectiveSubscriptionId = subscriptionId || uuidv4();
+      
+      // Check if the subscription exists before trying to use it
+      try {
+        const subscriptionCheck = await executeQuery(`
+          SELECT id FROM subscriptions WHERE id = ?
+        `, [effectiveSubscriptionId]);
+        subscriptionExists = subscriptionCheck && subscriptionCheck.length > 0;
+        console.log('Subscription check result:', subscriptionExists ? 'Subscription exists' : 'Subscription does not exist');
+        
+        // Log available subscription columns for debugging
+        const subscriptionColumns = await executeQuery('DESCRIBE subscriptions');
+        console.log('Available subscription columns:', subscriptionColumns.map(col => col.Field));
+      } catch (checkError) {
+        console.error('Error checking subscription:', checkError);
+        subscriptionExists = false;
       }
       
       // Use a minimal set of core fields that are most likely to exist in any schema
       // Only use the basic fields that are almost certainly in the table
       try {
+        // We already created effectiveSubscriptionId above
+        
+        // CRITICAL FIX: Do NOT create a subscription at this point - only create a payment intent
+        // Subscriptions should ONLY be created AFTER payment is confirmed in the create-from-payment endpoint
+        console.log('Creating a payment intent record only - no subscription created yet');
+        
+        // Store the plan details and subscription type in payment_intent for later use
+        let planIdToUse = null;
+        
+        // First try to get plan ID from request data
+        if (requestData.planId && requestData.planId !== '00000000-0000-0000-0000-000000000000') {
+          planIdToUse = requestData.planId;
+          console.log('Using plan ID from request data:', planIdToUse);
+        } 
+        // If not available, try to get it from metadata
+        else if (requestData.metadata?.exactPlanId && requestData.metadata.exactPlanId !== '00000000-0000-0000-0000-000000000000') {
+          planIdToUse = requestData.metadata.exactPlanId;
+          console.log('Using plan ID from metadata:', planIdToUse);
+        }
+        // Finally, try to look up by plan name
+        else if (requestData.metadata?.exactPlanName || planName) {
+          const nameToLookup = requestData.metadata?.exactPlanName || planName;
+          console.log('Looking up plan ID by name:', nameToLookup);
+          
+          try {
+            // Look up by plan name
+            const planResults = await executeQuery(
+              `SELECT id FROM subscription_plans WHERE name = ? LIMIT 1`,
+              [nameToLookup]
+            );
+            
+            if (planResults && planResults.length > 0) {
+              planIdToUse = planResults[0].id;
+              console.log('Found plan ID from database by name:', planIdToUse);
+            }
+          } catch (planLookupError) {
+            console.error('Error looking up plan by name:', planLookupError);
+          }
+        }
+        
+        // If we still don't have a valid plan ID, get the first active plan as fallback
+        if (!planIdToUse) {
+          try {
+            console.log('No valid plan ID found, using first active plan as fallback');
+            const fallbackPlanResults = await executeQuery(
+              `SELECT id FROM subscription_plans WHERE is_active = 1 LIMIT 1`
+            );
+            
+            if (fallbackPlanResults && fallbackPlanResults.length > 0) {
+              planIdToUse = fallbackPlanResults[0].id;
+              console.log('Using fallback active plan ID:', planIdToUse);
+            }
+          } catch (fallbackError) {
+            console.error('Error getting fallback plan:', fallbackError);
+          }
+        }
+        
+        // If we STILL don't have a valid plan ID, this is a serious error
+        if (!planIdToUse) {
+          console.error('CRITICAL ERROR: Could not determine a valid plan ID for payment intent');
+          throw new Error('Unable to create payment intent: no valid plan found');
+        }
+        
+        // Determine the correct subscription type
+        const subscriptionType = requestData.metadata?.subscriptionType || 'monthly';
+        
+        // Store subscription details in the payment_intent table for later use
+        // No subscription record is created yet
+        try {
+          await executeQuery(`
+            INSERT INTO payment_intent 
+            (id, user_id, plan_id, subscription_type, amount, discount_amount, promo_code, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+          `, [
+            effectiveSubscriptionId, // Use this as the payment intent ID
+            userId,
+            planIdToUse,
+            subscriptionType,
+            parseFloat(paymentAmount),
+            requestData.discountAmount || 0,
+            requestData.promoCode || null
+          ]);
+          
+          console.log('Created payment intent with plan ID:', planIdToUse);
+        } catch (paymentIntentError) {
+          console.error('Error creating payment intent:', paymentIntentError);
+          throw new Error('Failed to create payment intent record');
+        }  
+        
+        // Get the actual transaction ID from Paylink response (this is what we need to use for lookups)
+        // Paylink returns transactionNo which is different from our orderNumber
+        const paylinkTransactionNo = invoiceResult.transactionNo || invoiceResult.invoiceId;
+        
+        console.log('DEBUG: Paylink transaction details:', { 
+          orderNumber,
+          transactionId: invoiceResult.transactionId,
+          transactionNo: paylinkTransactionNo,
+          invoiceId: invoiceResult.invoiceId
+        });
+        
+        // Important: Insert the payment transaction with the Paylink transactionNo
+        // This is the ID that will be returned in callbacks
+        // Use payment_intent_id instead of subscription_id since subscription doesn't exist yet
         await executeQuery(`
           INSERT INTO payment_transactions 
-          (id, user_id, subscription_id, amount, transaction_id, status)
+          (id, user_id, payment_intent_id, amount, transaction_id, status)
           VALUES (?, ?, ?, ?, ?, 'pending')
         `, [
           paymentTransactionId,
           userId,
-          subscriptionExists ? subscriptionId : null, // Only include subscription_id if it exists
+          effectiveSubscriptionId, // Use this as the payment intent ID
           parseFloat(paymentAmount),
-          invoiceResult.transactionId || orderNumber
+          paylinkTransactionNo // Use the Paylink transactionNo as our transaction_id
         ]);
         
-        console.log('Successfully inserted payment transaction with minimal fields');
+        console.log('DEBUG: Stored transaction with Paylink transaction number:', {
+          paymentTransactionId,
+          userId,
+          subscriptionId: effectiveSubscriptionId,
+          paylinkTransactionNo,
+          orderNumber
+        });
         
-        // If we have a subscription ID but no subscription exists, create a subscription
-        if (subscriptionId && !subscriptionExists) {
-          try {
-            await executeQuery(`
-              INSERT INTO subscriptions 
-              (id, user_id, plan_id, subscription_type, amount_paid, status, transaction_id, created_at, updated_at)
-              VALUES (?, ?, ?, 'standard', ?, 'pending', ?, NOW(), NOW())
-            `, [
-              subscriptionId,
-              userId,
-              planId || null,
-              parseFloat(paymentAmount),
-              invoiceResult.transactionId || orderNumber
-            ]);
-            console.log('Successfully created subscription record');
-            
-            // Now update the payment transaction to link to the subscription
-            await executeQuery(`
-              UPDATE payment_transactions 
-              SET subscription_id = ?
-              WHERE id = ?
-            `, [subscriptionId, paymentTransactionId]);
-            console.log('Successfully updated subscription with transaction ID');
-          } catch (subError) {
-            console.error('Error creating subscription:', subError);
-          }
-        }
+        console.log('Successfully inserted payment transaction with transaction_id:', paylinkTransactionNo);
       } catch (insertError) {
         console.error('Error inserting payment transaction:', insertError);
         // Continue despite error - the payment may still be processed
@@ -358,12 +475,79 @@ export async function POST(request) {
         }
       }
       
-      // Return success response with payment URL
+      // Add comprehensive debugging to trace the response structure
+      console.log('DEBUG: Response from Paylink createDirectCheckout:', invoiceResult);
+      
+      // Always use database values to ensure no hardcoded plan names
+      // Directly query the plan again to ensure we have the correct data
+      let planNameToUse = '';
+      const planIdToUse = planId || subscriptionId || '';
+      
+      // If we have a planId, try one more direct query to get the plan name
+      if (planIdToUse) {
+        try {
+          console.log('Making one final direct plan lookup for ID:', planIdToUse);
+          
+          // Direct database query for the plan name - most reliable method
+          const finalPlanQuery = await executeQuery(
+            `SELECT name FROM subscription_plans WHERE id = ? LIMIT 1`,
+            [planIdToUse]
+          );
+          
+          // Check if we got a result and extract the name
+          if (finalPlanQuery && finalPlanQuery.length > 0 && finalPlanQuery[0].name) {
+            planNameToUse = finalPlanQuery[0].name;
+            console.log('Final lookup successful - using plan name:', planNameToUse);
+          } else {
+            // Only use the existing planName if the direct query fails
+            planNameToUse = planName || '';
+            console.log('Final lookup returned no results - falling back to:', planNameToUse || '(empty)');
+          }
+        } catch (finalLookupError) {
+          console.error('Error in final plan lookup:', finalLookupError);
+          // Use the existing planName as fallback
+          planNameToUse = planName || '';
+        }
+      } else {
+        // No plan ID available
+        console.log('No plan ID available for final lookup, using empty plan name');
+      }
+      
+      console.log('Final plan details for URL:', { planIdToUse, planNameToUse });
+      
+      // Add plan details to the payment URL if they don't already exist
+      let enhancedPaymentUrl = invoiceResult.paymentUrl;
+      if (enhancedPaymentUrl) {
+        // Start with base parameters
+        const hasQueryParams = enhancedPaymentUrl.includes('?');
+        const separator = hasQueryParams ? '&' : '?';
+        let additionalParams = '';
+        
+        // Add planName if not already in URL
+        if (!enhancedPaymentUrl.includes('planName=')) {
+          additionalParams += `${additionalParams ? '&' : ''}planName=${encodeURIComponent(planNameToUse)}`;
+        }
+        
+        // Add planId if not already in URL
+        if (!enhancedPaymentUrl.includes('planId=') && planIdToUse) {
+          additionalParams += `${additionalParams ? '&' : ''}planId=${encodeURIComponent(planIdToUse)}`;
+        }
+        
+        // Apply parameters to URL if we have any
+        if (additionalParams) {
+          enhancedPaymentUrl = `${enhancedPaymentUrl}${separator}${additionalParams}`;
+        }
+      }
+      
+      console.log('Enhanced payment URL with planName:', enhancedPaymentUrl);
+      
+      // Return success response with payment URL (matched to what EnhancedCheckoutForm expects)
       return NextResponse.json({
         success: true,
         invoiceId: invoiceResult.invoiceId,
         transactionId: invoiceResult.transactionId,
-        paymentUrl: invoiceResult.paymentUrl,
+        paymentUrl: enhancedPaymentUrl, // Enhanced URL with planName
+        planName: planNameToUse, // Include planName in the response
         amount: parseFloat(paymentAmount),
         currency: invoiceResult.currency || PAYLINK_CONFIG.CURRENCY,
         environment: configStatus.environment

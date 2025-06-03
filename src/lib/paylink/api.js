@@ -435,14 +435,48 @@ export async function getInvoice(invoiceId) {
     }
     
     // Make the API request with proper error handling
-    const response = await paylinkRequest(`${PAYLINK_CONFIG.ENDPOINTS.INVOICES}/${invoiceId}`).catch(err => {
-      console.error(`Error fetching Paylink invoice ${invoiceId}:`, err);
-      return { 
-        success: false, 
-        error: err.message,
-        data: { status: 'error', message: 'API error' } 
-      };
-    });
+    let response;
+    try {
+      if (PAYLINK_CONFIG.DEBUG_MODE) {
+        console.log(`Fetching invoice details using primary endpoint: ${PAYLINK_CONFIG.ENDPOINTS.GET_INVOICE}/${invoiceId}`);
+      }
+      
+      // Try using GET_INVOICE endpoint first (should be more reliable)
+      response = await paylinkRequest(`${PAYLINK_CONFIG.ENDPOINTS.GET_INVOICE}/${invoiceId}`);
+    } catch (primaryEndpointError) {
+      console.log(`Primary invoice endpoint failed: ${primaryEndpointError.message}. Trying fallback...`);
+      
+      try {
+        // Fallback to the INVOICES endpoint
+        if (PAYLINK_CONFIG.DEBUG_MODE) {
+          console.log(`Trying fallback invoice endpoint: ${PAYLINK_CONFIG.ENDPOINTS.INVOICES}/${invoiceId}`);
+        }
+        response = await paylinkRequest(`${PAYLINK_CONFIG.ENDPOINTS.INVOICES}/${invoiceId}`);
+      } catch (fallbackError) {
+        console.error(`All invoice endpoints failed for ${invoiceId}:`, fallbackError);
+        
+        // Try the transaction lookup instead as last resort
+        try {
+          if (PAYLINK_CONFIG.DEBUG_MODE) {
+            console.log(`Trying transaction lookup as last resort for ID: ${invoiceId}`);
+          }
+          // Use transaction endpoint as last resort
+          const transResponse = await getTransactionByNumber(invoiceId);
+          if (transResponse.success) {
+            return transResponse;
+          }
+        } catch (transError) {
+          console.error(`Transaction lookup also failed for ${invoiceId}:`, transError);
+        }
+        
+        // If all methods fail, return a standardized error
+        return { 
+          success: false, 
+          error: `Paylink API error (${fallbackError.status || 404}): ${fallbackError.message || 'Not Found'}`,
+          data: { status: 'error', message: 'Payment verification failed' } 
+        };
+      }
+    }
     
     // Make sure we have a valid response
     if (!response) {
@@ -565,7 +599,7 @@ export async function getTransactionByNumber(transactionNo) {
   } catch (error) {
     console.error(`Unhandled error in getTransactionByNumber for ${transactionNo}:`, error);
     return { 
-      success: false, 
+      success: false,
       error: error.message || 'Unknown error',
       data: { status: 'error', message: 'Exception occurred' } 
     };
@@ -574,162 +608,359 @@ export async function getTransactionByNumber(transactionNo) {
 
 /**
  * Complete 3D Secure authentication process
- * 
- * THIS IS THE CRITICAL MISSING FUNCTION FOR PAYLINK INTEGRATION
- * After 3D Secure authentication (ACS), Paylink requires a final confirmation
- * step with the PaRes and transactionNo to complete the payment process
- *
- * @param {Object} params - Parameters from 3DS callback
- * @param {string} params.PaRes - Payment Authentication Response from ACS
- * @param {string} params.MD - Merchant Data (typically contains transactionNo)
- * @param {string} params.transactionNo - Transaction number from Paylink
- * @returns {Promise<Object>} Transaction completion result
+ * @param {object} params - Parameters for 3DS authentication
+ * @param {string} params.PaRes - Payment Authentication Response
+ * @param {string} params.MD - Merchant Data
+ * @param {string} params.transactionNo - Transaction number
+ * @returns {Promise<object>} Authentication result
  */
 export async function complete3DSecureAuthentication(params) {
   try {
-    if (PAYLINK_CONFIG.DEBUG_MODE) {
-      console.log('Completing 3DS authentication with params:', {
-        ...params,
-        PaRes: params.PaRes ? `${params.PaRes.substring(0, 10)}... [truncated]` : undefined,
-        MD: params.MD ? `${params.MD.substring(0, 10)}... [truncated]` : undefined
-      });
-    }
-    
-    // Log the order number for debugging
-    console.log('Order Number/Transaction ID from URL:', params.orderNumber || params.transactionNo || 'Not provided');
-    
-    // Extract transaction number from MD if not directly provided
-    let transactionNo = params.transactionNo;
-    if (!transactionNo && params.MD) {
-      try {
-        // MD might be URL-encoded or a JSON string
-        const decodedMD = decodeURIComponent(params.MD);
-        const mdData = JSON.parse(decodedMD);
-        transactionNo = mdData.transactionNo || mdData.orderNumber;
-      } catch (e) {
-        // If parsing fails, use MD directly as it might be the transaction number
-        transactionNo = params.MD;
-      }
-    }
-    
-    if (!transactionNo) {
-      throw new Error('Missing transaction number for 3DS completion');
+    // Validate input parameters
+    if (!params) {
+      throw new Error('Missing 3D Secure parameters');
     }
     
     if (!params.PaRes) {
-      throw new Error('Missing PaRes for 3DS completion');
+      console.error('Missing required PaRes parameter for 3D Secure authentication');
+      return {
+        success: false,
+        status: 'error',
+        message: 'Missing required PaRes parameter for 3D Secure authentication',
+        errorType: 'validation_error'
+      };
     }
     
-    // Paylink may sometimes have issues with Base64 encoding
-    // Let's try both the original PaRes and a base64 encoded version
-    let encodedPaRes = params.PaRes;
+    if (!params.MD) {
+      console.error('Missing required MD parameter for 3D Secure authentication');
+      return {
+        success: false,
+        status: 'error',
+        message: 'Missing required MD parameter for 3D Secure authentication',
+        errorType: 'validation_error'
+      };
+    }
     
-    // Some implementations of Paylink require base64 encoding, others don't
-    // We'll first try with the original PaRes value as provided by the ACS
+    // Extract transaction number from MD if not provided
+    let transactionNo = params.transactionNo;
+    if (!transactionNo && params.MD) {
+      try {
+        // Try URL decoding first
+        const decodedMD = decodeURIComponent(params.MD);
+        
+        // Check if it looks like JSON
+        if (decodedMD.startsWith('{') && decodedMD.endsWith('}')) {
+          try {
+            const mdObj = JSON.parse(decodedMD);
+            transactionNo = mdObj.transactionNo || mdObj.orderNumber;
+            console.log('Extracted transaction number from decoded JSON MD:', transactionNo);
+          } catch (jsonError) {
+            console.error('Failed to parse decoded MD as JSON:', jsonError.message);
+            // Use the decoded value as-is
+            transactionNo = decodedMD;
+          }
+        } else if (params.MD.includes('transactionNo') || params.MD.includes('orderNumber')) {
+          // Try to parse raw MD as JSON
+          try {
+            const mdObj = JSON.parse(params.MD);
+            transactionNo = mdObj.transactionNo || mdObj.orderNumber;
+            console.log('Extracted transaction number from raw JSON MD:', transactionNo);
+          } catch (jsonError) {
+            console.error('Failed to parse raw MD as JSON despite containing keywords:', jsonError.message);
+            // Just use the MD directly in this case
+            transactionNo = params.MD;
+          }
+        } else {
+          // MD might be the transaction number itself
+          transactionNo = decodedMD;
+          console.log('Using decoded MD as transaction number:', transactionNo);
+        }
+      } catch (decodeError) {
+        // If decoding fails, use MD directly
+        console.error('Failed to decode MD:', decodeError.message);
+        transactionNo = params.MD;
+        console.log('Using raw MD as transaction number:', transactionNo);
+      }
+    }
     
-    // Try primary authentication method first
+    console.log('Transaction number for 3DS completion:', transactionNo);
+    
     try {
-      console.log('Trying primary 3DS completion endpoint...');
-      const response = await paylinkRequest(
-        PAYLINK_CONFIG.ENDPOINTS.COMPLETE_AUTHENTICATION,
-        'POST',
-        {
-          transactionNo,
-          paRes: encodedPaRes,
+      // Use Paylink primary API to complete 3D secure authentication
+      // Get a fresh auth token
+      const token = await getAuthToken();
+      
+      // Prepare the payload according to Paylink specs
+      // IMPORTANT: The correct parameter names are case-sensitive!
+      // Must use exactly PaRes and MD (correct capitalization) as per Paylink docs
+      const payload = {
+        PaRes: params.PaRes,  // Correct capitalization is critical
+        MD: params.MD,        // Correct capitalization is critical
+        transactionNo: transactionNo
+      };
+      
+      console.log('Complete 3DS payload keys:', Object.keys(payload).join(', '));
+      
+      // Make direct API call with proper headers and authentication
+      const completeAuthUrl = `${PAYLINK_CONFIG.BASE_URL}${PAYLINK_CONFIG.ENDPOINTS.COMPLETE_AUTHENTICATION}`;
+      console.log('Using 3DS completion URL:', completeAuthUrl);
+      
+      const response = await fetch(completeAuthUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      // Check response status and parse accordingly
+      console.log('Primary 3DS completion raw response status:', response.status);
+      
+      // Get the response text/json
+      const responseText = await response.text();
+      console.log('Primary 3DS completion raw response (truncated):', 
+        responseText.substring(0, 500) + (responseText.length > 500 ? '...' : ''));
+      
+      // Parse the response
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+        console.log('Parsed 3DS completion response:', responseData);
+      } catch (parseError) {
+        console.error('Failed to parse 3DS completion response as JSON:', parseError);
+        responseData = { success: false, error: 'Invalid response format' };
+      }
+      
+      // Normalize response data to a standard format regardless of Paylink's inconsistent responses
+      const normalizedResponse = {
+        success: responseData.success === true || 
+                responseData.status === 'success' || 
+                responseData.orderStatus === 'COMPLETED' || 
+                (response.ok && !responseData.error),
+        statusCode: responseData.statusCode || responseData.status_code || (response.ok ? 200 : response.status),
+        message: responseData.msg || responseData.message || responseData.description || '',
+        transactionNo: responseData.transactionNo || responseData.orderNumber || responseData.id || transactionNo,
+        invoiceId: responseData.invoiceId || responseData.id || '',
+        status: responseData.orderStatus || responseData.status || '',
+        rawData: responseData
+      };
+      
+      // If success, return the normalized response
+      if (normalizedResponse.success) {
+        console.log('Primary 3DS completion successful', normalizedResponse);
+        return normalizedResponse;
+      }
+      
+      // Handle error responses with better error messages
+      console.log(`Payment error detected in 3DS completion. Status: ${normalizedResponse.statusCode}, Message: ${normalizedResponse.message || 'No message'}`);
+      
+      // Map specific error codes to user-friendly messages
+      const numericStatusCode = parseInt(normalizedResponse.statusCode);
+      const isKnownError = [412, 451, 452, 500].includes(numericStatusCode);
+      
+      console.log(`Handling 3DS error with status code ${numericStatusCode}, isKnownError: ${isKnownError}`);
+      
+      // Create structured error response with all necessary details
+      // This will be used by the callback route to properly handle the error
+      return {
+        success: false,
+        statusCode: numericStatusCode || 400,
+        status: 'failed',
+        message: normalizedResponse.message || 'Payment authentication failed',
+        transactionNo: normalizedResponse.transactionNo,
+        invoiceId: normalizedResponse.invoiceId,
+        errorCode: numericStatusCode,
+        errorType: numericStatusCode === 451 ? 'payment_declined' : 
+                  numericStatusCode === 412 ? 'payment_system_error' : 
+                  'payment_processing_error',
+        rawData: responseData
+      };
+    } catch (primaryMethodError) {
+      console.error('Error in primary 3DS completion method:', primaryMethodError);
+      console.log('Trying alternative 3DS completion method...');
+      
+      try {
+        // Important: For the alternative endpoint, we need to try both with and without authentication token
+        // as Paylink's documentation is inconsistent about whether this endpoint requires authentication
+        
+        // First, prepare the payload - important to use URLSearchParams for x-www-form-urlencoded format
+        const altPayload = new URLSearchParams({
+          PaRes: params.PaRes, // Must be exactly PaRes (case sensitive)
+          MD: params.MD, // Must be exactly MD (case sensitive)
+          orderNumber: params.orderNumber || transactionNo,
+          // These additional parameters may help with proper routing
           callBackUrl: PAYLINK_CONFIG.DEFAULT_CALLBACK_URL,
           threeDSCallBackUrl: PAYLINK_CONFIG.DEFAULT_3DS_CALLBACK_URL
+        }).toString();
+        
+        console.log('Alternative 3DS endpoint:', `${PAYLINK_CONFIG.BASE_URL}${PAYLINK_CONFIG.ENDPOINTS.ALT_COMPLETE_AUTHENTICATION}`);
+        console.log('Alternative 3DS payload keys:', [...new URLSearchParams(altPayload).keys()].join(', '));
+        
+        // Get authentication token (for first attempt with auth)
+        const token = await getAuthToken();
+        
+        // First attempt with authentication
+        const altResponse = await fetch(`${PAYLINK_CONFIG.BASE_URL}${PAYLINK_CONFIG.ENDPOINTS.ALT_COMPLETE_AUTHENTICATION}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json'
+          },
+          body: altPayload
+        });
+        
+        console.log(`Alternative 3DS raw response status: ${altResponse.status}`);
+        
+        // Read the response body as text first to log it and examine it
+        const altResponseText = await altResponse.text();
+        console.log('Alternative 3DS response text (truncated):', 
+          altResponseText.substring(0, 500) + (altResponseText.length > 500 ? '...' : ''));
+        
+        // Try to parse as JSON
+        let altData;
+        try {
+          altData = JSON.parse(altResponseText);
+          console.log('Parsed alternative 3DS response:', altData);
+        } catch (parseError) {
+          console.error('Failed to parse alternative 3DS response as JSON:', parseError);
+          // If we couldn't parse as JSON but got a 200 OK, it might be a redirect URL in plain text
+          // or another non-JSON success indicator
+          if (altResponse.ok) {
+            console.log('Alternative 3DS completion appears successful despite non-JSON response');
+            return {
+              success: true,
+              status: 'success',
+              message: 'Authentication completed (non-JSON response)',
+              transactionNo: transactionNo,
+              rawResponse: altResponseText
+            };
+          } else {
+            console.error('Alternative 3DS completion failed with non-JSON error response');
+            altData = { success: false, error: 'Invalid response format' };
+          }
         }
-      );
-      
-      // Check for error status codes and prepare proper error response
-      if (response && response.statusCode && response.statusCode !== 200 && response.statusCode !== 100) {
-        console.log(`Payment error detected in 3DS completion. Status: ${response.statusCode}, Message: ${response.msg || 'No message'}`);
         
-        // Forward the error to the callback URL with proper parameters
-        const callbackUrl = new URL(PAYLINK_CONFIG.DEFAULT_CALLBACK_URL);
-        callbackUrl.searchParams.append('statusCode', response.statusCode);
-        callbackUrl.searchParams.append('msg', response.msg || 'Payment processing error');
-        callbackUrl.searchParams.append('transactionNo', transactionNo);
-        callbackUrl.searchParams.append('orderNumber', params.orderNumber || transactionNo);
+        // Check if the alternative method succeeded
+        if (altData && (altData.success || altData.status === 'success')) {
+          console.log('Alternative 3DS completion succeeded');
+          return {
+            success: true,
+            statusCode: 200,
+            status: 'success',
+            message: altData.message || 'Authentication completed successfully',
+            transactionNo: altData.transactionNo || altData.orderNumber || transactionNo,
+            invoiceId: altData.invoiceId || altData.id || '',
+            rawData: altData
+          };
+        }
         
-        console.log('Redirecting to callback with error:', callbackUrl.toString());
-        // Return structured response with redirect URL
+        // If we reach here, both methods failed
+        console.error('Both primary and alternative 3DS completion methods failed');
+        
+        // Before giving up, try one more approach - just query transaction status directly
+        if (transactionNo) {
+          try {
+            console.log('Trying final fallback: checking transaction status directly');
+            const transactionStatus = await getTransactionByNumber(transactionNo);
+            
+            console.log('Final fallback transaction status check result:', {
+              success: transactionStatus?.success,
+              status: transactionStatus?.status,
+              message: transactionStatus?.message,
+              statusCode: transactionStatus?.statusCode
+            });
+            
+            // If we get a successful status from transaction check, consider the 3DS auth successful
+            if (transactionStatus.status === 'paid' || 
+                transactionStatus.status === 'completed') {
+              return {
+                success: true,
+                status: 'success',
+                message: 'Transaction completed successfully (verified by status check)',
+                transactionNo: transactionNo,
+                rawData: transactionStatus
+              };
+            }
+            
+            // Return the transaction status error information
+            return {
+              success: false,
+              statusCode: transactionStatus.statusCode || 400,
+              status: transactionStatus.status || 'failed',
+              message: transactionStatus.message || 'Payment verification failed',
+              transactionNo: transactionNo,
+              errorType: 'payment_verification_failed',
+              rawData: transactionStatus
+            };
+          } catch (statusCheckError) {
+            console.error('Error in final transaction status check:', statusCheckError);
+          }
+        }
+        
+        // All attempts failed, return structured error
+        return {
+          success: false,
+          statusCode: altData?.statusCode || (altResponse?.status || 400),
+          status: 'failed',
+          message: altData?.message || altData?.msg || 'Failed to complete 3DS authentication after multiple attempts',
+          transactionNo: transactionNo,
+          errorType: 'authentication_failed',
+          rawData: altData
+        };
+      } catch (alternativeMethodError) {
+        console.error('Error in alternative 3DS completion method:', alternativeMethodError);
+        
+        // Check transaction status directly as last resort
+        if (transactionNo) {
+          try {
+            const transactionStatus = await getTransactionByNumber(transactionNo);
+            if (transactionStatus.status === 'paid' || transactionStatus.status === 'completed') {
+              return {
+                success: true,
+                status: 'success',
+                message: 'Transaction completed successfully (verified by status check)',
+                transactionNo: transactionNo,
+                rawData: transactionStatus
+              };
+            }
+            
+            return {
+              success: false,
+              statusCode: transactionStatus.statusCode || 500,
+              message: transactionStatus.message || alternativeMethodError.message,
+              transactionNo: transactionNo,
+              errorType: 'payment_processing_error',
+              rawData: transactionStatus
+            };
+          } catch (finalCheckError) {
+            console.error('Final transaction check failed:', finalCheckError);
+          }
+        }
+        
+        // Return error after all attempts failed
         return {
           success: false,
           status: 'error',
-          statusCode: response.statusCode,
-          message: response.msg || 'Payment processing error',
-          redirectUrl: callbackUrl.toString(),
-          rawResponse: response
+          message: `Failed to complete 3DS authentication: ${alternativeMethodError.message}`,
+          transactionNo: transactionNo,
+          errorType: 'system_error',
+          error: alternativeMethodError
         };
       }
-      
-      if (response && (response.success || response.status === 'success')) {
-        console.log('Primary 3DS completion successful');
-        return response;
-      }
-      
-      console.log('Primary 3DS completion failed, trying alternative method...');
-    } catch (primaryError) {
-      console.error('Error in primary 3DS completion method:', primaryError);
-      console.log('Trying alternative 3DS completion method...');
     }
-    
-    // If primary method fails, try the alternative method
-    // This uses the ACSRedirection endpoint that works with the landing3dSecure flow
-    try {
-      // For this endpoint, we need a different payload structure
-      const altResponse = await fetch(`${PAYLINK_CONFIG.BASE_URL}${PAYLINK_CONFIG.ENDPOINTS.ALT_COMPLETE_AUTHENTICATION}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          PaRes: params.PaRes,
-          MD: params.MD,
-          orderNumber: params.orderNumber || transactionNo,
-        }).toString()
-      });
-      
-      if (!altResponse.ok) {
-        console.error('Alternative 3DS method failed with status:', altResponse.status);
-        throw new Error(`Alternative 3DS completion failed with status ${altResponse.status}`);
-      }
-      
-      const altResponseText = await altResponse.text();
-      console.log('Alternative 3DS completion response:', altResponseText.substring(0, 200) + '...');
-      
-      // The response might be HTML or JSON, try to parse as JSON first
-      try {
-        const jsonResponse = JSON.parse(altResponseText);
-        console.log('Successfully parsed alternative 3DS response as JSON');
-        return jsonResponse;
-      } catch (parseError) {
-        // If it's not JSON, it might be HTML, which means the payment is processing
-        console.log('Alternative 3DS response is not JSON (likely HTML).');
-        return {
-          success: true,
-          status: 'processing',
-          message: 'Payment is being processed',
-          data: { rawResponse: 'HTML response received' }
-        };
-      }
-    } catch (altError) {
-      console.error('Error in alternative 3DS completion method:', altError);
-      throw altError; // Rethrow to be caught by the outer catch block
-    }
-    
-    if (PAYLINK_CONFIG.DEBUG_MODE) {
-      console.log('3DS completion response:', response);
-    }
-    
-    return response;
   } catch (error) {
-    console.error('Error completing 3D Secure authentication:', error);
+    // Final fallback for any unhandled errors
+    console.error('CRITICAL ERROR in 3D Secure authentication:', error);
     return {
       success: false,
-      error: error.message || 'Unknown error',
-      data: { status: 'error', message: 'Failed to complete 3D Secure authentication' }
+      status: 'error',
+      message: error.message || 'Unknown error in 3DS authentication',
+      transactionNo: params.transactionNo || params.orderNumber,
+      errorType: 'system_error',
+      error: error
     };
   }
 }
