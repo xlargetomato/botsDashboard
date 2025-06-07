@@ -87,8 +87,8 @@ export async function GET(request) {
       let status = sub.status;
       let remainingMs = 0;
       
-      // Only calculate remaining time if subscription is active and has valid dates
-      if (status === 'active' && sub.expired_date && sub.started_date) {
+      // Only calculate remaining time if subscription is active or available and has valid dates
+      if ((status === 'active' || status === 'available') && sub.expired_date && sub.started_date) {
         const expiredDate = new Date(sub.expired_date);
         remainingMs = expiredDate - now;
       } else if (status === 'pending' || status === 'payment_failed' || !sub.expired_date) {

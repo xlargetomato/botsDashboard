@@ -216,67 +216,74 @@ const CheckoutForm = ({
   // Handle form submission
   const handleCheckout = async (e) => {
     e.preventDefault();
-    
     setIsProcessing(true);
-    setError('');
-    setMessage(null);
-    
-    try {
-      const errors = validateForm();
-      if (Object.keys(errors).length > 0) {
-        setFormErrors(errors);
-        setIsProcessing(false);
-        return;
-      }
-      
-      const transactionId = `SUB-${Date.now()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
-      
-      setMessage({
-        type: 'processing',
-        content: 'Connecting to payment gateway...'
-      });
+    setError(null);
 
-      const invoicePayload = {
-        subscriptionId: selectedPlan.id,
-        callbackUrl: `${origin || window.location.origin}/api/paylink/callback?txn_id=${transactionId}`,
-        amount: parseFloat(calculateTotal()),
-        customerInfo: {
-          clientName: `${formData.firstName} ${formData.lastName}`,
-          clientEmail: formData.email,
-          clientMobile: formData.phone
-        },
-        orderNumber: transactionId,
-        products: [{
-          title: `${selectedPlan.name} Subscription - ${subscriptionType}`,
-          price: parseFloat(selectedPlan.price),
-          qty: 1,
-          description: `${selectedPlan.name} plan - ${subscriptionType} billing`
-        }],
-        origin: origin || window.location.origin
-      };
-      
-      if (appliedCoupon?.discount || discount) {
-        invoicePayload.discountAmount = selectedPlan.price * ((appliedCoupon?.discount || discount) / 100);
+    try {
+      // Validate form data
+      if (!selectedPlan) {
+        throw new Error('Please select a plan');
       }
-      
-      const directInvoiceResponse = await fetch('/api/paylink/direct-invoice', {
+
+      // Create the payment request
+      const paymentData = {
+        planId: selectedPlan.id,
+        planName: selectedPlan.name,
+        amount: selectedPlan.price,
+        currency: selectedPlan.currency || 'USD',
+        interval: selectedPlan.interval,
+        customerId: user?.id,
+        customerEmail: user?.email,
+        customerName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+        returnUrl: `${window.location.origin}/dashboard/client/subscriptions/payment-status`,
+        cancelUrl: `${window.location.origin}/dashboard/client/subscriptions/payment-status?status=cancelled`,
+        callbackUrl: `${window.location.origin}/api/paylink/callback`
+      };
+
+      // Call the create invoice API
+      const response = await fetch('/api/subscriptions/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(invoicePayload)
+        body: JSON.stringify(paymentData)
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to create payment');
+      }
+
+      const data = await response.json();
       
-      let invoiceData;
-      try {
-        invoiceData = await directInvoiceResponse.json();
-        if (directInvoiceResponse.ok && invoiceData.success) {
-          window.location.href = invoiceData.paymentUrl;
-        } else {
-          throw new Error(invoiceData.message || 'Payment initiation failed');
+      if (data.success && data.paymentUrl) {
+        // Store transaction details in session storage
+        if (data.transactionId) {
+          sessionStorage.setItem('paylink_transaction_id', data.transactionId);
         }
-      } catch (error) {
-        throw new Error('Failed to parse payment response');
+        if (data.orderNumber) {
+          sessionStorage.setItem('paylink_order_number', data.orderNumber);
+        }
+        if (data.transactionNo) {
+          sessionStorage.setItem('paylink_transaction_no', data.transactionNo);
+        }
+
+        // Construct the payment URL with direct redirection to payment-status
+        const paymentUrlObj = new URL(data.paymentUrl);
+        const currentUrl = new URL(window.location.href);
+        
+        // Add necessary parameters for payment-status page
+        paymentUrlObj.searchParams.append('redirect_to', '/dashboard/client/subscriptions/payment-status');
+        paymentUrlObj.searchParams.append('txn_id', data.transactionId);
+        paymentUrlObj.searchParams.append('orderNumber', data.orderNumber);
+        paymentUrlObj.searchParams.append('transactionNo', data.transactionNo);
+        paymentUrlObj.searchParams.append('planId', selectedPlan.id);
+        paymentUrlObj.searchParams.append('planName', selectedPlan.name);
+        
+        // Redirect to payment gateway
+        window.location.href = paymentUrlObj.toString();
+      } else {
+        throw new Error('Invalid payment response');
       }
     } catch (error) {
       setError(error.message);

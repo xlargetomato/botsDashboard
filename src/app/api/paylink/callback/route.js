@@ -4,6 +4,7 @@ import { getInvoice } from '@/lib/paylink/api';
 import { validateConfig, verifyWebhookSignature } from '@/lib/paylink/service';
 import { sendSubscriptionEmail } from '@/lib/email/emailService';
 import PAYLINK_CONFIG from '@/lib/paylink/config';
+import { pool } from '@/lib/db/config';
 
 /**
  * Helper function to get the base URL for redirects
@@ -42,128 +43,288 @@ function getBaseUrl(request) {
  * Helper function to process subscription and redirect appropriately
  */
 async function processSubscriptionForRedirect(subscription, transaction, request) {
-  // Get base URL for redirect
-  let baseUrl = getBaseUrl(request);
-  let redirectPath = '';
-  
-  // Get the plan details from the database if possible
-  let planName = '';
-  let planId = subscription?.plan_id || '';
-  
-  // Check if planId is valid or missing - zero UUID indicates a problem
-  if (!planId || planId === '00000000-0000-0000-0000-000000000000') {
-    console.log('Invalid or missing plan_id in subscription, trying to get it from transaction data');
+  try {
+    // Get base URL for redirect
+    let baseUrl = getBaseUrl(request);
+    let redirectPath = '';
     
-    // If we have a transaction ID, try to get the correct subscription data
-    if (transaction?.transaction_id) {
+    // Get the plan details from the database if possible
+    let planName = '';
+    let planId = subscription?.plan_id || '';
+    
+    // Check if planId is valid or missing - zero UUID indicates a problem
+    if (!planId || planId === '00000000-0000-0000-0000-000000000000') {
+      console.log('Invalid or missing plan_id in subscription, trying to get it from transaction data');
+      
+      // If we have a transaction ID, try to get the correct subscription data
+      if (transaction?.transaction_id) {
+        try {
+          // Get transaction data to see if it has plan info
+          console.log(`Looking up full transaction data for ID: ${transaction.transaction_id}`);
+          
+          // First check if we can find a subscription with this transaction ID
+          const subscriptionLookup = await executeQuery(
+            `SELECT s.*, p.id AS actual_plan_id, p.name AS plan_name 
+             FROM subscriptions s 
+             LEFT JOIN subscription_plans p ON s.plan_id = p.id 
+             WHERE s.transaction_id = ?`,
+            [transaction.transaction_id]
+          );
+          
+          if (subscriptionLookup && subscriptionLookup.length > 0) {
+            // Found a subscription with this transaction ID
+            const fullSubscription = subscriptionLookup[0];
+            if (fullSubscription.actual_plan_id) {
+              planId = fullSubscription.actual_plan_id;
+              planName = fullSubscription.plan_name || '';
+              console.log(`Found plan from transaction lookup: ID=${planId}, Name=${planName}`);
+            }
+          } else {
+            console.log('No subscription found with this transaction ID');
+          }
+        } catch (lookupError) {
+          console.error('Error looking up transaction data:', lookupError);
+          // Continue with what we have
+        }
+      }
+    }
+    
+    // If we still have a valid plan ID, double-check the plan details
+    if (planId && planId !== '00000000-0000-0000-0000-000000000000') {
       try {
-        // Get transaction data to see if it has plan info
-        console.log(`Looking up full transaction data for ID: ${transaction.transaction_id}`);
-        
-        // First check if we can find a subscription with this transaction ID
-        const subscriptionLookup = await executeQuery(
-          `SELECT s.*, p.id AS actual_plan_id, p.name AS plan_name 
-           FROM subscriptions s 
-           LEFT JOIN subscription_plans p ON s.plan_id = p.id 
-           WHERE s.transaction_id = ?`,
-          [transaction.transaction_id]
+        console.log(`Looking up plan with ID: ${planId}`);
+        const planResults = await executeQuery(
+          `SELECT * FROM subscription_plans WHERE id = ?`,
+          [planId]
         );
         
-        if (subscriptionLookup && subscriptionLookup.length > 0) {
-          // Found a subscription with this transaction ID
-          const fullSubscription = subscriptionLookup[0];
-          if (fullSubscription.actual_plan_id) {
-            planId = fullSubscription.actual_plan_id;
-            planName = fullSubscription.plan_name || '';
-            console.log(`Found plan from transaction lookup: ID=${planId}, Name=${planName}`);
-          }
-        } else {
-          console.log('No subscription found with this transaction ID');
+        if (planResults && planResults.length > 0) {
+          planName = planResults[0].name || '';
+          console.log(`Found plan name: ${planName} for plan ID: ${planId}`);
         }
-      } catch (lookupError) {
-        console.error('Error looking up transaction data:', lookupError);
+      } catch (err) {
+        console.error('Failed to fetch plan details:', err);
+        // Continue with what we have
       }
     }
-  }
-  
-  // If we still have a valid plan ID, double-check the plan details
-  if (planId && planId !== '00000000-0000-0000-0000-000000000000') {
+    
+    // Only include valid parameters in redirect URLs
+    let urlParams = [];
+    
+    // Only include plan ID if it's not the zero UUID
+    if (planId && planId !== '00000000-0000-0000-0000-000000000000') {
+      urlParams.push(`planId=${encodeURIComponent(planId)}`);
+    }
+    
+    // Only include plan name if not empty
+    if (planName) {
+      urlParams.push(`planName=${encodeURIComponent(planName)}`);
+    }
+    
+    // Always include transaction ID if available
+    if (transaction?.transaction_id) {
+      urlParams.push(`transactionId=${encodeURIComponent(transaction.transaction_id)}`);
+    }
+    
+    // Join all valid parameters
+    const baseParams = urlParams.join('&');
+    
+    // If the invoice was already processed by the webhook, the status should be updated
+    if (transaction.status === 'completed') {
+      // Payment completed - redirect to success page
+      redirectPath = `/dashboard/client/subscriptions/payment-status?status=success`;
+      if (baseParams) {
+        redirectPath += `&${baseParams}`;
+      }
+    } else if (transaction.status === 'failed' || transaction.status === 'cancelled') {
+      // Payment failed - redirect to failure page with reason
+      const reason = transaction.error_message || transaction.status;
+      redirectPath = `/dashboard/client/subscriptions/payment-status?status=failed&reason=${encodeURIComponent(reason)}`;
+      if (baseParams) {
+        redirectPath += `&${baseParams}`;
+      }
+    } else {
+      // Payment still pending - redirect to pending page
+      redirectPath = `/dashboard/client/subscriptions/payment-status?status=pending`;
+      if (baseParams) {
+        redirectPath += `&${baseParams}`;
+      }
+    }
+    
+    // Use baseUrl if available, otherwise fallback to relative URL
+    if (baseUrl) {
+      return NextResponse.redirect(`${baseUrl}${redirectPath}`);
+    } else {
+      return NextResponse.redirect(new URL(redirectPath, request.url));
+    }
+  } catch (error) {
+    console.error('Error in processSubscriptionForRedirect:', {
+      error: error.message,
+      stack: error.stack,
+      subscription: subscription?.id,
+      transaction: transaction?.id
+    });
+    
+    // Determine user-friendly error message
+    let errorMessage = 'Error processing payment status';
+    if (error.message.includes('Database')) {
+      errorMessage = 'Database error while processing payment';
+    } else if (error.message.includes('plan')) {
+      errorMessage = 'Error retrieving subscription plan details';
+    }
+    
+    // Get base URL for redirect
+    let baseUrl = '';
     try {
-      console.log(`Looking up plan with ID: ${planId}`);
-      const planResults = await executeQuery(
-        `SELECT * FROM subscription_plans WHERE id = ?`,
-        [planId]
-      );
-      
-      console.log('Plan lookup results:', planResults);
-      
-      if (planResults && planResults.length > 0) {
-        // Successfully found the plan
-        planName = planResults[0].name || '';
-        console.log(`Found plan name: ${planName} for plan ID: ${planId}`);
+      baseUrl = getBaseUrl(request);
+    } catch (urlError) {
+      // Ignore error and use relative URL
+    }
+    
+    const redirectPath = `/dashboard/client/subscriptions/payment-status?status=failed&reason=${encodeURIComponent(errorMessage)}`;
+    
+    // Try to redirect with error message
+    try {
+      if (baseUrl) {
+        return NextResponse.redirect(`${baseUrl}${redirectPath}`);
       } else {
-        console.warn(`No plan found with ID: ${planId}`);
+        return NextResponse.redirect(new URL(redirectPath, request.url));
       }
-    } catch (err) {
-      console.error('Failed to fetch plan details:', err.message);
-    }
-  } else {
-    console.warn('No valid plan_id available after lookups');
-  }
-  
-  // Only include valid parameters in redirect URLs
-  // Skip empty values and placeholders entirely
-  let urlParams = [];
-  
-  // Only include plan ID if it's not the zero UUID
-  if (planId && planId !== '00000000-0000-0000-0000-000000000000') {
-    urlParams.push(`planId=${encodeURIComponent(planId)}`);
-  }
-  
-  // Only include plan name if not empty
-  if (planName) {
-    urlParams.push(`planName=${encodeURIComponent(planName)}`);
-  }
-  
-  // Always include transaction ID
-  if (transaction?.transaction_id) {
-    urlParams.push(`transactionId=${encodeURIComponent(transaction.transaction_id)}`);
-  }
-  
-  console.log('URL parameters:', urlParams);
-  
-  // Join all valid parameters
-  const baseParams = urlParams.join('&');
-  
-  // If the invoice was already processed by the webhook, the status should be updated
-  if (transaction.status === 'completed') {
-    // Payment completed - redirect to success page
-    redirectPath = `/dashboard/client/subscriptions/payment-status?status=success`;
-    // Only add parameters if we have any
-    if (baseParams) {
-      redirectPath += `&${baseParams}`;
-    }
-  } else if (transaction.status === 'failed' || transaction.status === 'cancelled') {
-    // Payment failed - redirect to failure page
-    redirectPath = `/dashboard/client/subscriptions/payment-status?status=failed&reason=${encodeURIComponent(transaction.status)}`;
-    // Only add parameters if we have any
-    if (baseParams) {
-      redirectPath += `&${baseParams}`;
-    }
-  } else {
-    // Payment still pending - redirect to pending page
-    redirectPath = `/dashboard/client/subscriptions/payment-status?status=pending`;
-    // Only add parameters if we have any
-    if (baseParams) {
-      redirectPath += `&${baseParams}`;
+    } catch (redirectError) {
+      // Last resort - return JSON error
+      return NextResponse.json(
+        { error: 'Failed to process subscription redirect', details: errorMessage },
+        { status: 500 }
+      );
     }
   }
-  
-  // Use baseUrl if available, otherwise fallback to relative URL
-  if (baseUrl) {
-    return NextResponse.redirect(`${baseUrl}${redirectPath}`);
-  } else {
-    return NextResponse.redirect(new URL(redirectPath, request.url));
+}
+
+// Helper function to verify transaction status locally
+async function verifyTransactionLocally(transactionData) {
+  try {
+    // First try to find the transaction in our database
+    const query = `
+      SELECT pt.*, s.id as subscription_id, s.status as subscription_status 
+      FROM payment_transactions pt
+      LEFT JOIN subscriptions s ON pt.subscription_id = s.id
+      WHERE pt.id = ? 
+      OR pt.order_number = ? 
+      OR pt.transaction_no = ?
+      ORDER BY pt.created_at DESC 
+      LIMIT 1
+    `;
+    
+    const results = await executeQuery(query, [
+      transactionData.txn_id,
+      transactionData.orderNumber,
+      transactionData.transactionNo
+    ]);
+
+    return results && results.length > 0 ? results[0] : null;
+  } catch (error) {
+    console.error('Error verifying transaction locally:', error);
+    return null;
+  }
+}
+
+// Helper function to create or update subscription
+async function handleSuccessfulPayment(transactionData) {
+  try {
+    console.log('Handling successful payment with data:', transactionData);
+
+    // First verify transaction locally
+    const existingTransaction = await verifyTransactionLocally(transactionData);
+    console.log('Existing transaction found:', existingTransaction);
+
+    // If we have an existing active subscription, just return it
+    if (existingTransaction?.subscription_id && existingTransaction?.subscription_status === 'active') {
+      console.log('Found existing active subscription:', existingTransaction.subscription_id);
+      return existingTransaction.subscription_id;
+    }
+
+    // Start a transaction for data consistency
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      // Insert or update transaction
+      const transactionQuery = `
+        INSERT INTO payment_transactions (
+          id,
+          order_number,
+          transaction_no,
+          status,
+          amount,
+          plan_id,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, 'completed', ?, ?, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+          status = 'completed',
+          updated_at = NOW(),
+          plan_id = VALUES(plan_id)
+      `;
+
+      const [transactionResult] = await connection.execute(transactionQuery, [
+        transactionData.txn_id,
+        transactionData.orderNumber,
+        transactionData.transactionNo,
+        transactionData.amount || 0,
+        transactionData.planId
+      ]);
+
+      console.log('Transaction created/updated:', transactionResult);
+
+      // Create new subscription if one doesn't exist
+      const subscriptionQuery = `
+        INSERT INTO subscriptions (
+          plan_id,
+          status,
+          payment_confirmed,
+          transaction_id,
+          created_at,
+          updated_at
+        ) VALUES (?, 'active', TRUE, ?, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+          status = 'active',
+          payment_confirmed = TRUE,
+          updated_at = NOW()
+      `;
+
+      const [subscriptionResult] = await connection.execute(subscriptionQuery, [
+        transactionData.planId,
+        transactionData.txn_id
+      ]);
+
+      console.log('Subscription created/updated:', subscriptionResult);
+
+      // Update transaction with subscription ID if needed
+      if (subscriptionResult.insertId) {
+        const updateQuery = `
+          UPDATE payment_transactions 
+          SET subscription_id = ? 
+          WHERE id = ?
+        `;
+        await connection.execute(updateQuery, [subscriptionResult.insertId, transactionData.txn_id]);
+      }
+
+      // Commit the transaction
+      await connection.commit();
+      console.log('Database transaction committed successfully');
+
+      return subscriptionResult.insertId || existingTransaction?.subscription_id;
+    } catch (error) {
+      // Rollback on error
+      await connection.rollback();
+      console.error('Error in database transaction:', error);
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error handling successful payment:', error);
+    throw error;
   }
 }
 
@@ -172,287 +333,103 @@ async function processSubscriptionForRedirect(subscription, transaction, request
  * This handles when users are redirected back from the payment gateway
  */
 export async function GET(request) {
+  let baseUrl = '';
   try {
-    // Get the transaction ID and subscription ID from the URL query parameters
-    const url = new URL(request.url);
-    // Look for transaction ID in multiple possible parameter names
-    const txnId = url.searchParams.get('txn_id') || 
-                  url.searchParams.get('transactionNo') || 
-                  url.searchParams.get('orderNumber') || 
-                  url.searchParams.get('invoiceId');
-    const subscriptionIdFromUrl = url.searchParams.get('subscription_id') || url.searchParams.get('externalOrderNumber');
+    console.log('[callback/route.js GET Handler] Processing payment callback:', request.url);
     
-    // First, try to get error information from request body (JSON)
-    let statusCode, errorMsg, paylinkResponse;
-    try {
-      // Clone the request to read the body
-      const clonedRequest = request.clone();
-      // Try to parse response as JSON
-      const responseJson = await clonedRequest.json().catch(() => null);
-      
-      // If we have a valid JSON response, extract error info
-      if (responseJson) {
-        paylinkResponse = responseJson;
-        statusCode = responseJson.statusCode?.toString();
-        errorMsg = responseJson.message || responseJson.error;
-      }
-    } catch (parseError) {
-      // Ignore parse errors - this is just a best-effort attempt
-      console.log('No JSON body in redirect request (this is normal)');
-    }
-    
-    // Check if this is an error response from Paylink
-    if (statusCode && statusCode !== '200' && errorMsg) {
-      console.error('Error response from Paylink:', { statusCode, errorMsg });
-      
-      // Get the base URL for redirect
-      let baseUrl = getBaseUrl(request);
-      const redirectPath = `/dashboard/client/subscriptions/payment-status?status=failed&reason=${encodeURIComponent(errorMsg)}`;
-      
-      // Use baseUrl if available, otherwise fallback to relative URL
-      if (baseUrl) {
-        return NextResponse.redirect(`${baseUrl}${redirectPath}`);
-      } else {
-        return NextResponse.redirect(new URL(redirectPath, request.url));
-      }
-    }
-    
-    // Validate we have at least the transaction ID
-    if (!txnId && !subscriptionIdFromUrl) {
-      console.error('Missing transaction or subscription ID in redirect');
-      
-      // Get the base URL for redirect
-      let baseUrl = getBaseUrl(request);
-      const redirectPath = '/dashboard/client/subscriptions/payment-status?status=failed&reason=Missing+transaction+information';
-      
-      // Use baseUrl if available, otherwise fallback to relative URL
-      if (baseUrl) {
-        return NextResponse.redirect(`${baseUrl}${redirectPath}`);
-      } else {
-        return NextResponse.redirect(new URL(redirectPath, request.url));
-      }
-    }
-    
-    // Look up transaction in database by transaction ID
-    let paymentTransaction;
-    let queryResult;
-    
-    // Get both the transaction ID and order number from the request URL
-    const requestUrl = new URL(request.url);
-    const orderNumber = requestUrl.searchParams.get('orderNumber');
-    console.log('DEBUG: Looking up transaction with txnId:', txnId, 'orderNumber:', orderNumber);
-    
-    // First, check what transaction IDs exist in the database
-    try {
-      const allTransactions = await executeQuery('SELECT id, transaction_id FROM payment_transactions LIMIT 10');
-      console.log('DEBUG: Recent transactions in database:', allTransactions);
-    } catch (e) {
-      console.error('Error fetching recent transactions:', e);
-    }
-    
-    if (txnId || orderNumber) {
-      // Try multiple lookups to find the transaction
-      const attempts = [];
-      
-      // Try all possible combinations of IDs that might be in the database
-      if (txnId) attempts.push(txnId);
-      if (orderNumber) attempts.push(orderNumber);
-      
-      for (const attemptId of attempts) {
-        try {
-          console.log(`DEBUG: Attempting to find transaction with ID: ${attemptId}`);
-          
-          // Try exact match
-          queryResult = await executeQuery(`
-            SELECT * FROM payment_transactions 
-            WHERE transaction_id = ?
-          `, [attemptId]);
-          
-          if (queryResult.length > 0) {
-            console.log(`Found transaction using ID: ${attemptId}`);
-            break; // Stop searching if we found a match
-          }
-          
-          // Try partial match with LIKE
-          queryResult = await executeQuery(`
-            SELECT * FROM payment_transactions 
-            WHERE transaction_id LIKE ?
-          `, [`%${attemptId}%`]);
-          
-          if (queryResult.length > 0) {
-            console.log(`Found transaction using LIKE search for ID: ${attemptId}`);
-            break; // Stop searching if we found a match
-          }
-        } catch (dbError) {
-          console.error(`Error searching for transaction with ID ${attemptId}:`, dbError);
-        }
-      }
-      
-      // If we found a transaction, use it
-      if (queryResult && queryResult.length > 0) {
-        paymentTransaction = queryResult[0];
-        console.log('DEBUG: Found payment transaction:', paymentTransaction);
-      } else {
-        console.log('DEBUG: Failed to find transaction after trying all possible IDs');
-      }
-    }
-    
-    // If not found and we have a subscription ID, try to find the transaction by subscription ID
-    if (!paymentTransaction && subscriptionIdFromUrl) {
-      queryResult = await executeQuery(`
-        SELECT * FROM payment_transactions 
-        WHERE subscription_id = ? 
-        ORDER BY created_at DESC 
-        LIMIT 1
-      `, [subscriptionIdFromUrl]);
-      
-      if (queryResult.length > 0) {
-        paymentTransaction = queryResult[0];
-      }
-    }
-    
-    // Skip checking for mapping table since it doesn't exist in the database schema
-    if (!paymentTransaction) {
-      // Log that we're skipping this step due to missing table
-      console.log('Skipping mapping table check - table does not exist in schema');
-    }
-    
-    // If we couldn't find the transaction, redirect to error page
-    if (!paymentTransaction) {
-      console.error('Payment transaction not found for redirect:', { txnId, subscriptionIdFromUrl });
-      
-      // Get the base URL for redirect
-      let baseUrl = getBaseUrl(request);
-      const redirectPath = '/dashboard/client/subscriptions/payment-status?status=failed&reason=Transaction+not+found';
-      
-      // Use baseUrl if available, otherwise fallback to relative URL
-      if (baseUrl) {
-        return NextResponse.redirect(`${baseUrl}${redirectPath}`);
-      } else {
-        return NextResponse.redirect(new URL(redirectPath, request.url));
-      }
-    }
-    
-    // Check if this subscription has a subscription associated with it
-    const subscriptionId = paymentTransaction.subscription_id;
-    if (!subscriptionId) {
-      // This is a one-time payment, not a subscription
-      // For now, redirect to a general success page
-      let baseUrl = getBaseUrl(request);
-      const redirectPath = '/dashboard/client/subscriptions/payment-status?status=success&type=onetime';
-      
-      // Use baseUrl if available, otherwise fallback to relative URL
-      if (baseUrl) {
-        return NextResponse.redirect(`${baseUrl}${redirectPath}`);
-      } else {
-        return NextResponse.redirect(new URL(redirectPath, request.url));
-      }
-    }
-    
-    // Get subscription details
-    const subscriptionResults = await executeQuery(`
-      SELECT * FROM subscriptions WHERE id = ?
-    `, [subscriptionId]);
-    
-    if (subscriptionResults.length === 0) {
-      console.error('Subscription not found for payment:', { subscriptionId });
-      
-      // Get the base URL for redirect
-      let baseUrl = getBaseUrl(request);
-      const redirectPath = '/dashboard/client/subscriptions/payment-status?status=failed&reason=Subscription+not+found';
-      
-      // Use baseUrl if available, otherwise fallback to relative URL
-      if (baseUrl) {
-        return NextResponse.redirect(`${baseUrl}${redirectPath}`);
-      } else {
-        return NextResponse.redirect(new URL(redirectPath, request.url));
-      }
-    }
-    
-    const subscription = subscriptionResults[0];
-    
-    // Check invoice status with Paylink if we have an invoice ID
-    if (paymentTransaction.paylink_invoice_id) {
-      try {
-        // We'll try to get the latest status from Paylink
-        const invoice = await getInvoice(paymentTransaction.paylink_invoice_id);
-        
-        if (invoice && invoice.status) {
-          // Parse the Paylink status
-          const paylinkStatus = invoice.status.toLowerCase();
-          
-          // Map Paylink status to our internal status
-          let newStatus;
-          if (paylinkStatus === 'paid' || paylinkStatus === 'completed') {
-            newStatus = 'completed';
-          } else if (paylinkStatus === 'failed' || paylinkStatus === 'cancelled') {
-            newStatus = 'failed';
-          } else {
-            newStatus = 'pending';
-          }
-          
-          // Update our transaction status if it's different
-          if (newStatus !== paymentTransaction.status) {
-            await executeQuery(`
-              UPDATE payment_transactions 
-              SET status = ?, 
-                  updated_at = NOW() 
-              WHERE id = ?
-            `, [newStatus, paymentTransaction.id]);
-            
-            // Update our local record of the transaction status
-            paymentTransaction.status = newStatus;
-            
-            // If status is now completed and subscription is still pending, update it
-            if (newStatus === 'completed' && subscription.status === 'pending') {
-              await executeQuery(`
-                UPDATE subscriptions 
-                SET status = 'active', 
-                    payment_confirmed = TRUE, 
-                    updated_at = NOW() 
-                WHERE id = ?
-              `, [subscriptionId]);
-              
-              // Update our local record
-              subscription.status = 'active';
-            }
-          }
-        }
-      } catch (invoiceError) {
-        // Non-fatal error, we'll proceed with the data we have
-        console.warn('Error fetching invoice from Paylink (non-fatal):', invoiceError.message);
-      }
-    }
-    
-    // Process the subscription and redirect appropriately
-    return await processSubscriptionForRedirect(subscription, paymentTransaction, request);
-  } catch (error) {
-    console.error('Error processing payment redirect:', error);
-    
-    // Get the base URL for redirect
-    let baseUrl = '';
+    // Get base URL for redirects early
     try {
       baseUrl = getBaseUrl(request);
+      console.log('Using base URL for redirects:', baseUrl);
     } catch (urlError) {
-      // Ignore errors
+      console.error('Error getting base URL:', urlError);
+      baseUrl = '';
     }
+
+    const requestUrlObject = new URL(request.url);
+    const { searchParams } = requestUrlObject;
     
-    const redirectPath = '/dashboard/client/subscriptions/payment-status?status=failed&reason=Server+error';
+    // Create a clean parameters object to remove duplicates
+    const cleanParams = new Map();
     
-    // Use baseUrl if available, otherwise fallback to relative URL
-    if (baseUrl) {
-      return NextResponse.redirect(`${baseUrl}${redirectPath}`);
-    } else {
+    // Helper function to add parameter if it exists and is not empty
+    const addParam = (key, value) => {
+      if (value && !cleanParams.has(key)) {
+        cleanParams.set(key, value);
+      }
+    };
+
+    // Get all possible transaction identifiers
+    const txnId = searchParams.get('txn_id') || 
+                 searchParams.get('transactionId') || 
+                 searchParams.get('transactionNo') || 
+                 searchParams.get('orderId') || 
+                 searchParams.get('invoiceId');
+    
+    const orderNumber = searchParams.get('orderNumber');
+    const transactionNo = searchParams.get('transactionNo');
+    const planId = searchParams.get('planId');
+    const planName = searchParams.get('planName');
+    const status = searchParams.get('status');
+
+    console.log('Processing payment with status:', status);
+
+    // If status is success, create or update subscription
+    if (status === 'success' || status === 'completed') {
       try {
-        return NextResponse.redirect(new URL(redirectPath, request.url));
-      } catch (redirectError) {
-        // Last resort
-        return NextResponse.json(
-          { error: 'Server error processing payment redirect' },
-          { status: 500 }
-        );
+        console.log('Attempting to create/update subscription...');
+        const subscriptionId = await handleSuccessfulPayment({
+          txn_id: txnId,
+          orderNumber,
+          transactionNo,
+          planId,
+          planName
+        });
+        
+        console.log('Subscription created/updated successfully:', subscriptionId);
+        
+        // Add success message to parameters
+        addParam('message', 'Subscription activated successfully');
+        addParam('subscription_id', subscriptionId);
+      } catch (error) {
+        console.error('Error creating subscription:', error);
+        // Add error message to parameters
+        addParam('error', 'Error activating subscription: ' + error.message);
       }
     }
+
+    // Add parameters in order of priority, avoiding duplicates
+    addParam('status', status);
+    addParam('txn_id', txnId);
+    addParam('orderNumber', orderNumber);
+    addParam('transactionNo', transactionNo);
+    addParam('planId', planId);
+    addParam('planName', planName);
+
+    // Create the redirect URL with clean parameters
+    const redirectUrl = new URL('/dashboard/client/subscriptions/payment-status', baseUrl || request.url);
+    const cleanSearchParams = new URLSearchParams();
+    
+    // Add clean parameters to URL
+    cleanParams.forEach((value, key) => {
+      cleanSearchParams.append(key, value);
+    });
+    
+    redirectUrl.search = cleanSearchParams.toString();
+
+    // Clean up any double slashes in the URL
+    const finalUrl = redirectUrl.toString().replace(/([^:]\/)\/+/g, "$1");
+    console.log('Redirecting to cleaned URL:', finalUrl);
+
+    return NextResponse.redirect(finalUrl);
+  } catch (error) {
+    console.error('Error in callback handler:', error);
+    
+    // Even on error, redirect to payment-status with error information
+    const errorPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent(error.message)}`;
+    return baseUrl ? 
+      NextResponse.redirect(`${baseUrl}${errorPath}`) : 
+      NextResponse.redirect(new URL(errorPath, request.url));
   }
 }
 
@@ -464,333 +441,91 @@ export async function GET(request) {
  */
 export async function POST(request) {
   try {
-    // Verify the Paylink configuration first
-    const configStatus = validateConfig();
-    if (!configStatus.isValid) {
-      return NextResponse.json({
-        success: false,
-        error: 'Invalid Paylink configuration',
-        details: {
-          missingVars: configStatus.missingVars
-        }
-      }, { status: 500 });
-    }
+    const data = await request.json();
+    const searchParams = new URL(request.url).searchParams;
     
-    // Get the request body as text for signature verification
-    const requestBodyText = await request.text();
+    // Create a clean parameters object to remove duplicates
+    const cleanParams = new Map();
     
-    // Verify the webhook signature to ensure it's a legitimate request from Paylink
-    const isValidWebhook = verifyWebhookSignature(request.headers, requestBodyText);
-    
-    // If the signature is invalid and we're in production, reject the request
-    if (!isValidWebhook && PAYLINK_CONFIG.IS_PRODUCTION) {
-      console.error('Invalid Paylink webhook signature');
-      return NextResponse.json({
-        success: false,
-        error: 'Invalid webhook signature'
-      }, { status: 403 });
-    }
-    
-    // Parse the request body
-    let callbackData;
-    try {
-      callbackData = JSON.parse(requestBodyText);
-    } catch (parseError) {
-      console.error('Error parsing Paylink callback data:', parseError);
-      return NextResponse.json({
-        success: false,
-        error: 'Invalid JSON in webhook payload'
-      }, { status: 400 });
-    }
-    
-    // Extract transaction identifiers from callback data
-    // Paylink uses different field names in different environments, so check all possibilities
-    const invoiceId = callbackData.invoice_id || callbackData.invoiceId || callbackData.id || 
-                     callbackData.transactionNo || callbackData.transactionId || callbackData.transaction_id;
-    
-    const transactionId = callbackData.transaction_id || callbackData.transactionId || 
-                          callbackData.orderNumber || callbackData.order_number || callbackData.reference;
-    
-    // Get status from callback data or default to 'pending'
-    const status = (callbackData.status || callbackData.paymentStatus || '').toLowerCase();
-    const paymentStatus = status === 'paid' || status === 'completed' || status === 'success' ? 'completed' : 
-                        status === 'failed' || status === 'cancelled' ? 'failed' : 'pending';
-    
-    // Additional data from callback
-    const paidAmount = callbackData.amount || callbackData.paidAmount;
-    const currency = callbackData.currency || 'SAR';
-    
-    console.log('Paylink callback received', {
-      url: request.url,
-      environment: process.env.PAYLINK_ENVIRONMENT || 'unknown'
-    });
-    
-    console.log('Payment callback received:', {
-      invoiceId,
-      transactionId,
-      status: paymentStatus,
-      amount: paidAmount,
-      currency
-    });
-    
-    // Validate that we have at least one identifier
-    if (!invoiceId && !transactionId) {
-      console.error('Missing payment identifiers in callback');
-      return NextResponse.json(
-        { error: 'Missing payment identifiers in callback data' },
-        { status: 400 }
-      );
-    }
+    // Helper function to add parameter if it exists and is not empty
+    const addParam = (key, value) => {
+      if (value && !cleanParams.has(key)) {
+        cleanParams.set(key, value);
+      }
+    };
 
-    // Start a database transaction for atomicity
-    try {
-      await executeQuery('START TRANSACTION');
-      
-      // Find the transaction in our database
-      let paymentTransaction;
-      let queryResult;
-      
-      // First try to find by invoice ID if available
-      if (invoiceId) {
-        queryResult = await executeQuery(`
-          SELECT * FROM payment_transactions 
-          WHERE paylink_invoice_id = ?
-        `, [invoiceId]);
-        
-        if (queryResult.length > 0) {
-          paymentTransaction = queryResult[0];
-        }
-      }
-      
-      // If not found by invoice ID, try transaction ID
-      if (!paymentTransaction && transactionId) {
-        queryResult = await executeQuery(`
-          SELECT * FROM payment_transactions 
-          WHERE transaction_id = ? OR paylink_reference = ?
-        `, [transactionId, transactionId]);
-        
-        if (queryResult.length > 0) {
-          paymentTransaction = queryResult[0];
-        }
-      }
-      
-      // Skip mapping table check since it doesn't exist in the schema
-      if (!paymentTransaction) {
-        console.log('Skipping mapping table check - table does not exist in schema');
-      }
-      
-      // If we couldn't find the transaction, return error
-      if (!paymentTransaction) {
-        console.error('Payment transaction not found for:', { invoiceId, transactionId });
-        await executeQuery('ROLLBACK');
-        return NextResponse.json(
-          { error: 'Payment transaction not found in our records' },
-          { status: 404 }
-        );
-      }
-      
-      // Get the subscription ID from the transaction
-      const subscriptionId = paymentTransaction.subscription_id;
-      
-      // Get subscription details if available
-      let subscription = null;
-      let userId = paymentTransaction.user_id; // This might be null if not directly on the transaction
-      
-      if (subscriptionId) {
-        const subscriptionResults = await executeQuery(`
-          SELECT * FROM subscriptions WHERE id = ?
-        `, [subscriptionId]);
-        
-        if (subscriptionResults.length > 0) {
-          subscription = subscriptionResults[0];
-          
-          // Ensure we have a user ID for subscription history and email notifications
-          if (!userId && subscription && subscription.user_id) {
-            userId = subscription.user_id;
-            console.log('Using user ID from subscription record:', userId);
-          } else if (!userId) {
-            console.warn('No user ID found for payment transaction or subscription');
-          }
-        }
-      }
+    // Get all possible transaction identifiers
+    const txnId = searchParams.get('txn_id') || 
+                 data.orderNumber || 
+                 data.transactionNo;
+                 
+    const orderNumber = data.orderNumber;
+    const transactionNo = data.transactionNo;
+    const planId = searchParams.get('planId');
+    const planName = searchParams.get('planName');
 
-      // For successful payments, update payment and subscription status
-      if (paymentStatus === 'completed') {
-        // Update payment transaction record
-        await executeQuery(`
-          UPDATE payment_transactions 
-          SET status = 'completed', 
-              payment_gateway_response = ?, 
-              updated_at = NOW() 
-          WHERE id = ?
-        `, [JSON.stringify(callbackData), paymentTransaction.id]);
-        
-        // If there's a subscription, update it
-        if (subscription) {
-          // Update subscription status to active only if it was pending
-          // This prevents premature subscription activation
-          await executeQuery(`
-            UPDATE subscriptions 
-            SET status = CASE 
-                  WHEN status = 'pending' THEN 'active'
-                  WHEN status = 'payment_failed' THEN 'active'
-                  ELSE status
-                END, 
-                payment_confirmed = TRUE, 
-                updated_at = NOW() 
-            WHERE id = ?
-          `, [subscriptionId]);
-          
-          // Add subscription history record if we have a user ID
-          if (userId) {
-            await executeQuery(`
-              INSERT INTO subscription_history 
-              (id, subscription_id, user_id, action, details, created_at)
-              VALUES (UUID(), ?, ?, 'payment_completed', ?, NOW())
-            `, [
-              subscriptionId,
-              userId,
-            JSON.stringify({
-              invoiceId,
-              transactionId,
-              paymentMethod: 'paylink',
-              amount: paymentTransaction.amount,
-              currency,
-              completedAt: new Date().toISOString()
-            })
-          ]);
-          }
-          
-          // Try to send email notification if available
-          try {
-            if (typeof sendSubscriptionEmail === 'function') {
-              await sendSubscriptionEmail(userId, 'payment_success', {
-                subscription,
-                transaction: paymentTransaction,
-                invoice: { id: invoiceId, status: paymentStatus }
-              });
-            }
-          } catch (emailError) {
-            console.warn('Error sending email notification (non-fatal):', emailError.message);
-          }
-        }
-      } 
-      // For failed payments
-      else if (paymentStatus === 'failed') {
-        // Check for specific error codes from Paylink that indicate payment failure
-        let failureReason = '';
-        if (callbackData.statusCode) {
-          // Convert to number if it's a string
-          const numericStatusCode = parseInt(callbackData.statusCode, 10);
-          
-          // Handle specific error codes
-          if ([400, 412, 451, 500].includes(numericStatusCode)) {
-            failureReason = callbackData.message || `Payment rejected with code ${callbackData.statusCode}`;
-            console.log(`Payment failed with status code ${callbackData.statusCode}: ${failureReason}`);
-          }
-        }
-        
-        // If no error code triggered, check the status string
-        if (!failureReason) {
-          // Map Paylink status to our system
-          if (status.toLowerCase() === 'failed' || status.toLowerCase() === 'cancelled' || status.toLowerCase() === 'rejected' || status.toLowerCase() === 'error' || status.toLowerCase().includes('fail')) {
-            failureReason = callbackData.message || 'Payment failed or was rejected';
-          }
-        }
-        
-        // Additional check for payment errors in the body message
-        if (callbackData.message && (callbackData.message.toLowerCase().includes('error') || callbackData.message.toLowerCase().includes('fail') || callbackData.message.toLowerCase().includes('reject'))) {
-          failureReason = callbackData.message;
-        }
-        
-        // Update payment transaction record
-        await executeQuery(`
-          UPDATE payment_transactions 
-          SET status = 'failed', 
-              payment_gateway_response = ?,
-              error_message = ?,
-              updated_at = NOW() 
-          WHERE id = ?
-        `, [JSON.stringify(callbackData), failureReason || 'Payment processing failed', paymentTransaction.id]);
-        
-        // If there's a subscription, update it
-        if (subscription) {
-          // Update subscription status to available so user can try again
-          await executeQuery(`
-            UPDATE subscriptions 
-            SET status = 'available', 
-                error_message = ?,
-                updated_at = NOW() 
-            WHERE id = ?
-          `, [failureReason || 'Payment processing failed', subscriptionId]);
-          
-          // Add subscription history record if we have a user ID
-          if (userId) {
-            await executeQuery(`
-              INSERT INTO subscription_history 
-              (id, subscription_id, user_id, action, details, created_at)
-              VALUES (UUID(), ?, ?, 'payment_failed', ?, NOW())
-            `, [
-              subscriptionId,
-              userId,
-              JSON.stringify({
-                invoiceId,
-                transactionId,
-                paymentMethod: 'paylink',
-                failureReason: failureReason || 'Payment processing failed',
-                errorCode: callbackData.statusCode || '',
-                failedAt: new Date().toISOString()
-              })
-            ]);
-          }
-        }
-      }
-      // For pending payments (or any other status)
-      else {
-        // Just update the transaction status
-        await executeQuery(`
-          UPDATE payment_transactions 
-          SET status = 'pending', 
-              payment_gateway_response = ?, 
-              updated_at = NOW() 
-          WHERE id = ?
-        `, [JSON.stringify(callbackData), paymentTransaction.id]);
-      }
-      
-      // Commit the transaction
-      await executeQuery('COMMIT');
-      
-      // Return success response
-      return NextResponse.json({
-        success: true,
-        status: paymentStatus,
-        invoiceId,
-        transactionId,
-        message: `Payment ${paymentStatus}`
-      });
-    } catch (dbError) {
-      // Rollback on error
+    // Process the transaction status
+    const status = data.status?.toLowerCase();
+    let newStatus;
+    
+    if (status === 'paid' || status === 'completed' || status === 'success') {
+      newStatus = 'completed';
       try {
-        await executeQuery('ROLLBACK');
-      } catch (rollbackError) {
-        console.error('Error rolling back transaction:', rollbackError);
+        await handleSuccessfulPayment({
+          txn_id: txnId,
+          orderNumber,
+          transactionNo,
+          planId,
+          planName,
+          amount: data.amount
+        });
+        
+        // Add success message to parameters
+        addParam('message', 'Subscription activated successfully');
+      } catch (error) {
+        console.error('Error creating subscription:', error);
+        // Add error message to parameters
+        addParam('error', 'Error activating subscription');
       }
-      
-      console.error('Database error processing payment callback:', dbError);
-      
-      return NextResponse.json({
-        success: false,
-        error: 'Database error processing payment',
-        message: dbError.message
-      }, { status: 500 });
+    } else if (status === 'failed' || status === 'cancelled' || status === 'expired') {
+      newStatus = 'failed';
+    } else {
+      newStatus = 'pending';
     }
-  } catch (error) {
-    console.error('Error processing payment callback:', error);
+
+    // Add clean parameters
+    addParam('status', newStatus);
+    addParam('txn_id', txnId);
+    addParam('orderNumber', orderNumber);
+    addParam('transactionNo', transactionNo);
+    addParam('planId', planId);
+    addParam('planName', planName);
+
+    // Create the redirect URL with clean parameters
+    const baseUrl = getBaseUrl(request);
+    const redirectUrl = new URL('/dashboard/client/subscriptions/payment-status', baseUrl || request.url);
+    const cleanSearchParams = new URLSearchParams();
     
-    return NextResponse.json({
-      success: false,
-      error: 'Server error processing payment callback',
-      message: error.message
-    }, { status: 500 });
+    // Add clean parameters to URL
+    cleanParams.forEach((value, key) => {
+      cleanSearchParams.append(key, value);
+    });
+    
+    redirectUrl.search = cleanSearchParams.toString();
+
+    // Clean up any double slashes in the URL
+    const finalUrl = redirectUrl.toString().replace(/([^:]\/)\/+/g, "$1");
+    console.log('Redirecting to cleaned URL:', finalUrl);
+
+    return NextResponse.redirect(finalUrl);
+  } catch (error) {
+    console.error('Payment callback error:', error);
+    
+    const baseUrl = getBaseUrl(request);
+    const errorPath = `/dashboard/client/subscriptions/payment-status?status=error&message=${encodeURIComponent(error.message)}`;
+    
+    return baseUrl ? 
+      NextResponse.redirect(`${baseUrl}${errorPath}`) : 
+      NextResponse.redirect(new URL(errorPath, request.url));
   }
 }

@@ -304,33 +304,9 @@ const EnhancedCheckoutForm = ({
     }
   };
 
-  // Handle Paylink callback
-  const handlePaylinkCallback = async (status, txnId) => {
-    try {
-      if (status === 'success') {
-        // Update subscription status to active
-        const updateResponse = await fetch(`/api/subscriptions/update-status?txn_id=${txnId}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ status: 'active' })
-        });
-        if (!updateResponse.ok) {
-          throw new Error(t('Failed to update subscription status'));
-        }
-        setMessage({
-          type: 'success',
-          content: t('Subscription activated successfully')
-        });
-      } else {
-        setError(t('Payment failed or was cancelled'));
-      }
-    } catch (error) {
-      setError(error.message);
-      console.error('Callback error:', error);
-    }
-  };
+  // We no longer need to handle Paylink callback here as subscription creation happens
+  // server-side in the create-from-payment endpoint only after payment confirmation
+  // This prevents premature subscription creation before payment is confirmed
 
   // Render message component
   const renderMessage = () => {
@@ -412,7 +388,7 @@ const EnhancedCheckoutForm = ({
             ) : (
               <>
                 {language === 'ar' ? 'المتابعة إلى الدفع' : 'Continue to Payment'}
-                <MdPayment className="ml-2" size={20} />
+                <MdPayment className="rtl:mr-2 ltr:ml-2" size={20} />
               </>
             )}
           </button>
@@ -421,27 +397,24 @@ const EnhancedCheckoutForm = ({
     );
   };
 
-  // Render payment details step
   const renderPaymentDetails = () => {
     return (
-      <div className="payment-details">
+      <div className="payment-details rtl:text-right rtl:font-[Cairo]">
         <button
           onClick={() => setStep('plan-selection')}
-          className="mb-4 text-blue-600 dark:text-blue-400 hover:underline flex items-center"
+          className="mb-4 text-blue-600 dark:text-blue-400 hover:underline flex items-center rtl:flex-row-reverse"
         >
           ← {language === 'ar' ? 'العودة إلى اختيار الخطة' : 'Back to Plan Selection'}
         </button>
-        
 
-        
-        <div className="flex flex-col lg:flex-row gap-8">
+        <div className="flex flex-col lg:flex-row rtl:lg:flex-row-reverse gap-8">
           {/* Order summary */}
           <div className="lg:w-1/3">
             <div className="bg-gray-50 dark:bg-gray-800 p-6 rounded-lg shadow-sm">
-              <h3 className="text-xl font-bold mb-4 text-gray-800 dark:text-white">
+              <h3 className="text-xl font-bold mb-4 text-gray-800 dark:text-white rtl:text-right rtl:font-[Cairo]">
                 {language === 'ar' ? 'ملخص الطلب' : 'Order Summary'}
               </h3>
-              
+
               <div className="mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
                 <div className="flex justify-between mb-2">
                   <span className="text-gray-600 dark:text-gray-300">{selectedPlan?.name}</span>
@@ -450,22 +423,22 @@ const EnhancedCheckoutForm = ({
                   </span>
                 </div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">
-                  {subscriptionType === 'monthly' ? (language === 'ar' ? 'اشتراك شهري' : 'Monthly subscription') : (language === 'ar' ? 'اشتراك سنوي' : 'Yearly subscription')}
+                  {language === 'ar' ? 'اشتراك شهري' : 'Monthly subscription'}
                 </div>
               </div>
-              
+
               {/* Coupon code */}
               <div className="mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
                 {appliedCoupon ? (
                   <div>
                     <div className="flex justify-between mb-2">
-                      <div className="flex items-center text-green-600 dark:text-green-400">
-                        <FaPercent size={14} className="mr-1" />
+                      <div className="flex items-center text-green-600 dark:text-green-400 rtl:flex-row-reverse">
+                        <FaPercent size={14} className="rtl:ml-1 ltr:mr-1" />
                         <span className="font-medium">{language === 'ar' ? 'كوبون' : 'Coupon'}: {appliedCoupon.code}</span>
                       </div>
                       <button
                         onClick={handleRemoveCoupon}
-                        className="text-sm text-red-600 dark:text-red-400 hover:underline"
+                        className="text-red-500 hover:text-red-600 text-sm hover:underline rtl:mr-2 ltr:ml-2"
                       >
                         {language === 'ar' ? 'إزالة' : 'Remove'}
                       </button>
@@ -478,55 +451,92 @@ const EnhancedCheckoutForm = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="flex">
-                    <input
-                      type="text"
-                      placeholder={t('Promo code')}
-                      value={couponCode}
-                      onChange={(e) => setCouponCode(e.target.value)}
-                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-l-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                    />
-                    <button
-                      onClick={handleApplyCoupon}
-                      disabled={isApplyingCoupon || !couponCode.trim()}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-r-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isApplyingCoupon ? (
-                        <FaSpinner className="animate-spin" />
-                      ) : (
-                        t('Apply')
+                  <div>
+                    <label className="block text-gray-700 dark:text-gray-300 mb-1 rtl:text-right" htmlFor="couponCode">
+                      {language === 'ar' ? 'هل لديك كوبون؟' : 'Have a coupon?'}
+                    </label>
+                    <div className="flex ltr:flex-row rtl:flex-row">
+                      {/* Apply button comes first in RTL mode */}
+                      {language === 'ar' && (
+                        <button
+                          onClick={handleApplyCoupon}
+                          disabled={isApplyingCoupon || !couponCode.trim()}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-[Cairo] rounded-r-lg rounded-l-none disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isApplyingCoupon ? (
+                            <FaSpinner className="animate-spin" />
+                          ) : (
+                            'تطبيق'
+                          )}
+                        </button>
                       )}
-                    </button>
+                      
+                      <input
+                        type="text"
+                        id="couponCode"
+                        name="couponCode"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value)}
+                        placeholder={language === 'ar' ? 'أدخل الكوبون هنا' : 'Enter coupon code'}
+                        className={`flex-1 px-4 py-2 border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
+                          language === 'ar' 
+                            ? 'rounded-l-lg rounded-r-none border-r-0' 
+                            : 'rounded-l-lg rounded-r-none border-r-0'
+                        }`}
+                      />
+                      
+                      {/* Apply button comes after input in LTR mode */}
+                      {language !== 'ar' && (
+                        <button
+                          onClick={handleApplyCoupon}
+                          disabled={isApplyingCoupon || !couponCode.trim()}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-r-lg rounded-l-none disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isApplyingCoupon ? (
+                            <FaSpinner className="animate-spin" />
+                          ) : (
+                            'Apply'
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
-              
-              {/* Total */}
-              <div className="flex justify-between font-bold text-lg">
-                <span className="text-gray-800 dark:text-white">{language === 'ar' ? 'المجموع' : 'Total'}</span>
-                <span className="text-gray-800 dark:text-white">
-                  {calculateTotal()} {language === 'ar' ? 'ر.س.' : 'SAR'}
-                </span>
-              </div>
-              
-              <div className="mt-6 text-sm text-gray-500 dark:text-gray-400 flex items-center">
-                <MdLock className="mr-1" />
-                {language === 'ar' ? 'دفع آمن بواسطة Paylink' : 'Secure payment processed by Paylink'}
+            </div>
+
+            {/* Total */}
+            <div className="mt-6 pt-4 border-t-2 border-gray-200 dark:border-gray-700">
+              <div className="flex justify-between items-center rtl:flex-row-reverse">
+                <span className="text-lg font-bold rtl:font-[Cairo] text-gray-800 dark:text-white">{language === 'ar' ? 'المجموع' : 'Total'}</span>
+                <div className="text-right">
+                  <span className="text-2xl font-bold text-blue-600 dark:text-blue-400 rtl:font-[Cairo] rtl:ml-1 ltr:mr-1">
+                    {calculateTotal()}
+                  </span>
+                  <span className="text-lg font-medium rtl:font-[Cairo] text-gray-600 dark:text-gray-300">
+                    {language === 'ar' ? 'ر.س.' : 'SAR'}
+                  </span>
+                </div>
               </div>
             </div>
+
+            <div className="mt-6 text-sm text-gray-500 dark:text-gray-400 flex items-center rtl:flex-row-reverse">
+              <MdLock className="rtl:ml-1 ltr:mr-1" />
+              <span className="rtl:font-[Cairo]">{language === 'ar' ? 'جميع المدفوعات آمنة ومشفرة' : 'All payments are secure and encrypted'}</span>
+            </div>
           </div>
-          
+
           {/* Payment form */}
           <div className="lg:w-2/3">
-            <h3 className="text-xl font-bold mb-4 text-gray-800 dark:text-white">
+            <h3 className="text-xl font-bold mb-4 text-gray-800 dark:text-white rtl:text-right rtl:font-[Cairo]">
               {language === 'ar' ? 'معلومات العميل' : 'Customer Information'}
             </h3>
-            
+
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Customer information */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-gray-700 dark:text-gray-300 mb-1" htmlFor="firstName">
+                  <label className="block text-gray-700 dark:text-gray-300 mb-1 rtl:text-right rtl:font-[Cairo]" htmlFor="firstName">
                     {language === 'ar' ? 'الاسم الأول' : 'First Name'} *
                   </label>
                   <input
@@ -545,9 +555,9 @@ const EnhancedCheckoutForm = ({
                     </p>
                   )}
                 </div>
-                
+
                 <div>
-                  <label className="block text-gray-700 dark:text-gray-300 mb-1" htmlFor="lastName">
+                  <label className="block text-gray-700 dark:text-gray-300 mb-1 rtl:text-right rtl:font-[Cairo]" htmlFor="lastName">
                     {language === 'ar' ? 'اسم العائلة' : 'Last Name'} *
                   </label>
                   <input
@@ -567,10 +577,10 @@ const EnhancedCheckoutForm = ({
                   )}
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-gray-700 dark:text-gray-300 mb-1" htmlFor="email">
+                  <label className="block text-gray-700 dark:text-gray-300 mb-1 rtl:text-right rtl:font-[Cairo]" htmlFor="email">
                     {language === 'ar' ? 'البريد الإلكتروني' : 'Email'} *
                   </label>
                   <input
@@ -589,9 +599,9 @@ const EnhancedCheckoutForm = ({
                     </p>
                   )}
                 </div>
-                
+
                 <div>
-                  <label className="block text-gray-700 dark:text-gray-300 mb-1" htmlFor="phone">
+                  <label className="block text-gray-700 dark:text-gray-300 mb-1 rtl:text-right rtl:font-[Cairo]" htmlFor="phone">
                     {language === 'ar' ? 'رقم الهاتف' : 'Phone'} *
                   </label>
                   <input
@@ -611,58 +621,48 @@ const EnhancedCheckoutForm = ({
                   )}
                 </div>
               </div>
-              
+
               <div className="mt-8 mb-4 text-center">
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2 rtl:text-right rtl:font-[Cairo]">
                   {language === 'ar' ? 'سيتم إعادة توجيهك إلى بوابة الدفع الآمنة لإكمال عملية الدفع' : 'You will be redirected to our secure payment gateway to complete your payment'}
                 </p>
-                <div className="flex justify-center items-center space-x-2 text-gray-500 dark:text-gray-400">
-                  <MdSecurity size={20} />
-                  <span>{language === 'ar' ? 'جميع المدفوعات آمنة ومشفرة' : 'All payments are secure and encrypted'}</span>
+                <div className="flex justify-center items-center rtl:space-x-0 rtl:space-x-reverse ltr:space-x-2 text-gray-500 dark:text-gray-400 rtl:flex-row-reverse">
+                  <MdSecurity size={20} className="rtl:ml-2 ltr:mr-0" />
+                  <span className="rtl:font-[Cairo]">{language === 'ar' ? 'جميع المدفوعات آمنة ومشفرة' : 'All payments are secure and encrypted'}</span>
                 </div>
               </div>
-              
+
               {/* Submit button */}
               <div className="flex justify-center mt-8">
                 <button
                   type="submit"
                   disabled={isProcessing}
-                  className="py-3 px-8 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed rtl:font-[Cairo]"
                 >
                   {isProcessing ? (
                     <>
-                      <FaSpinner className="animate-spin mr-2" />
-                      {language === 'ar' ? 'جاري المعالجة' : 'Processing'}...
+                      <FaSpinner className="animate-spin rtl:ml-2 ltr:mr-2" />
+                      {language === 'ar' ? 'جاري المعالجة...' : 'Processing...'}
                     </>
                   ) : (
                     <>
                       {language === 'ar' ? 'إتمام الدفع' : 'Complete Payment'}
-                      <FaCreditCard className="ml-2" size={20} />
+                      <FaCreditCard className="rtl:mr-2 ltr:ml-2" size={16} />
                     </>
                   )}
                 </button>
               </div>
             </form>
           </div>
+
+          {/* End of payment details form */}
         </div>
       </div>
     );
   };
 
   return (
-    <div 
-      className="checkout-container w-full max-w-6xl mx-auto p-4 md:p-6 bg-white dark:bg-gray-900 rounded-xl shadow-lg dark:shadow-gray-800/30"
-      dir={isRtl ? 'rtl' : 'ltr'}
-    >
-      {/* Display error message if any */}
-      {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg mb-6 flex items-center">
-          <FaExclamationCircle className="text-red-500 mr-3" size={24} />
-          <div className="text-red-800 dark:text-red-200">{error}</div>
-        </div>
-      )}
-      
-      {/* Display success/processing message if any */}
+    <div className="checkout-form-container rtl:text-right rtl:font-[Cairo]">
       {renderMessage()}
       
       {/* Render different steps based on current step */}

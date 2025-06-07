@@ -1,4 +1,4 @@
-import { executeQuery } from '../config';
+import { executeQuery } from '../config.js';
 
 // Function to create the subscriptions-related tables
 export async function createSubscriptionsTable() {
@@ -35,28 +35,9 @@ export async function createSubscriptionsTable() {
         promo_code VARCHAR(50),
         discount_amount DECIMAL(10, 2) DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Subscription plans table is already created above
-
-    // Create payment transactions table with enhanced fields for payment gateways
-    await executeQuery(`
-      CREATE TABLE IF NOT EXISTS payment_transactions (
-        id VARCHAR(36) PRIMARY KEY,
-        user_id VARCHAR(36) NOT NULL,
-        subscription_id VARCHAR(36) NOT NULL,
-        amount DECIMAL(10, 2) NOT NULL,
-        payment_method VARCHAR(50) NOT NULL,
-        transaction_id VARCHAR(255),
-        status ENUM('pending', 'completed', 'failed', 'refunded', 'cancelled') NOT NULL,
-        last_four_digits VARCHAR(4),
-        paylink_invoice_id VARCHAR(255),
-        paylink_reference VARCHAR(255),
-        payment_gateway_response JSON,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE CASCADE
       )
     `);
     
@@ -68,7 +49,9 @@ export async function createSubscriptionsTable() {
         user_id VARCHAR(36) NOT NULL,
         action VARCHAR(50) NOT NULL,
         details JSON,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
 
@@ -108,3 +91,6 @@ export async function createSubscriptionsTable() {
     return false;
   }
 }
+
+// Export the initialization function
+export default createSubscriptionsTable;

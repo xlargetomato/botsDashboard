@@ -47,6 +47,9 @@ export async function createInvoice(invoiceData) {
     if (PAYLINK_CONFIG.DEBUG_MODE) {
       console.log('Creating Paylink invoice with data:', JSON.stringify(invoiceData, null, 2));
     }
+    console.log('[service.js createInvoice] Incoming invoiceData.callBackUrl:', invoiceData.callBackUrl);
+    console.log('[service.js createInvoice] Incoming invoiceData.threeDSCallBackUrl:', invoiceData.threeDSCallBackUrl);
+    console.log('[service.js createInvoice] Incoming invoiceData.returnUrl:', invoiceData.returnUrl);
     
     // Ensure invoice data is properly formatted
     const validatedData = { ...invoiceData };
@@ -66,15 +69,20 @@ export async function createInvoice(invoiceData) {
       validatedData.currency = PAYLINK_CONFIG.CURRENCY;
     }
     
-    // CRITICAL: Always set callback URLs for proper 3D Secure handling
-    // Main callback URL
-    validatedData.callBackUrl = PAYLINK_CONFIG.DEFAULT_CALLBACK_URL;
+    // Set callback URLs if not already provided in invoiceData
+    // This allows createDirectCheckout to pass its own constructed callback URLs
+    if (!validatedData.callBackUrl) {
+      validatedData.callBackUrl = PAYLINK_CONFIG.DEFAULT_CALLBACK_URL;
+    }
     
-    // 3D Secure callback URL - critical for completing the authentication
-    validatedData.threeDSCallBackUrl = PAYLINK_CONFIG.DEFAULT_3DS_CALLBACK_URL;
+    if (!validatedData.threeDSCallBackUrl) {
+      validatedData.threeDSCallBackUrl = PAYLINK_CONFIG.DEFAULT_3DS_CALLBACK_URL;
+    }
     
-    // Return URL for when 3D Secure is completed
-    validatedData.returnUrl = PAYLINK_CONFIG.DEFAULT_3DS_CALLBACK_URL;
+    if (!validatedData.returnUrl) {
+      // Default returnUrl can also be the 3DS callback URL or the main callback URL
+      validatedData.returnUrl = validatedData.threeDSCallBackUrl || validatedData.callBackUrl || PAYLINK_CONFIG.DEFAULT_3DS_CALLBACK_URL;
+    }
     
     // Fix callback URL format if needed
     if (validatedData.callBackUrl) {
@@ -90,8 +98,13 @@ export async function createInvoice(invoiceData) {
       validatedData.returnUrl = validatedData.returnUrl.replace(/([^:])\/{2,}/g, '$1/');
     }
     
+    // Log the final validated URLs before sending to Paylink API
+    console.log('[service.js createInvoice] FINAL validatedData.callBackUrl FOR PAYLINK:', validatedData.callBackUrl);
+    console.log('[service.js createInvoice] FINAL validatedData.threeDSCallBackUrl FOR PAYLINK:', validatedData.threeDSCallBackUrl);
+    console.log('[service.js createInvoice] FINAL validatedData.returnUrl FOR PAYLINK:', validatedData.returnUrl);
+
     // Log the URLs being used (helpful for debugging)
-    console.log('Paylink URLs being used:', {
+    console.log('Paylink URLs being used (this is the object sent to Paylink):', {
       callBackUrl: validatedData.callBackUrl,
       threeDSCallBackUrl: validatedData.threeDSCallBackUrl,
       returnUrl: validatedData.returnUrl
@@ -237,8 +250,9 @@ export async function createDirectCheckout(paymentData) {
     const invoice = await createInvoice(invoiceData);
     
     return {
-      transactionId,
-      invoiceId: invoice.invoiceId,
+      transactionId, // Our internal ID (SUB-xxx)
+      invoiceId: invoice.invoiceId, // Paylink's invoice ID
+      paylinkTransactionNo: invoice.transactionNo, // Paylink's actual transaction number
       paymentUrl: invoice.paymentUrl,
       callbackUrl,
       amount: formatAmount(paymentData.amount),

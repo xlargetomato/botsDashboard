@@ -49,6 +49,11 @@ const publicRoutes = [
   '/api/auth/resend-verification',
   '/api/auth/forgot-password',
   '/api/auth/reset-password',
+  '/api/paylink/callback',
+  '/api/paylink/3ds-callback',
+  '/api/paylink/3ds-return',
+  '/dashboard/client/subscriptions/payment-status',
+  '/api/subscriptions/transaction-status'
 ];
 
 // Define routes that require authentication
@@ -57,6 +62,8 @@ const protectedRoutes = [
   '/profile',
   '/settings',
   '/api/user',
+  '/api/subscriptions',
+  '/api/bots'
 ];
 
 // Define routes that require admin role
@@ -69,6 +76,9 @@ const adminRoutes = [
 const apiRoutes = [
   '/api/user/profile',
   '/api/admin',
+  '/api/subscriptions/active',
+  '/api/bots/create',
+  '/api/bots/botId/qr'
 ];
 
 export async function middleware(request) {
