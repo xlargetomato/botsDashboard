@@ -77,6 +77,18 @@ export default function PaymentStatus() {
         const transactionNo = searchParams.get('transactionNo');
         const planId = searchParams.get('planId');
         const planName = searchParams.get('planName');
+        // Get the subscription type and amount from URL parameters
+        const subscriptionType = searchParams.get('subscriptionType');
+        const amount = searchParams.get('amount');
+
+        console.log('Creating subscription with parameters:', {
+          transactionId: txnId || transactionNo,
+          planId,
+          planName,
+          subscriptionType,
+          amount,
+          userId: paymentDetails?.userId
+        });
 
         const createResponse = await fetch('/api/subscriptions/create-from-payment', {
           method: 'POST',
@@ -87,6 +99,8 @@ export default function PaymentStatus() {
             transactionId: txnId || transactionNo,
             planId,
             planName,
+            subscriptionType,
+            amount,
             userId: paymentDetails?.userId
           }),
         });

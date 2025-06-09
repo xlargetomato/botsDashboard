@@ -9,6 +9,7 @@ import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import Image from 'next/image';
 import { useTranslation } from '@/lib/i18n/config';
 import Link from 'next/link';
+import { Spinner } from '@/components/ui/spinner';
 
 export default function ConnectWhatsAppPage() {
   const { botId } = useParams();
@@ -257,9 +258,52 @@ export default function ConnectWhatsAppPage() {
     }
   };
   
+  // Function to fetch QR code
+  const fetchQrCode = async () => {
+    try {
+      console.log(`Fetching QR code for bot ${botId}`);
+      const qrResponse = await fetch(`/api/bots/${botId}/qr`);
+      const qrData = await qrResponse.json();
+      
+      if (qrData.qr && qrData.success) {
+        setQrCode(qrData.qr);
+        setStatusMessage(
+          isRtl ? 'امسح رمز QR هذا باستخدام تطبيق واتساب على هاتفك' : 'Scan this QR code with WhatsApp on your phone'
+        );
+        setIsLoading(false);
+        setRetryCount(0);
+        startPolling();
+        return;
+      } else if (qrData.waiting) {
+        setStatusMessage(
+          isRtl ? 'جاري إنشاء رمز QR... يرجى الانتظار' : 'Generating QR code... please wait'
+        );
+        setTimeout(() => {
+          fetchingRef.current = false;
+          fetchQrCode();
+        }, 3000);
+        return;
+      } else {
+        setStatusMessage(
+          isRtl ? 'جاري إنشاء رمز QR...' : 'Generating QR code...'
+        );
+        setTimeout(() => {
+          fetchingRef.current = false;
+          fetchQrCode();
+        }, 2000);
+        return;
+      }
+    } catch (qrError) {
+      setError(
+        isRtl ? 'فشل في الحصول على رمز QR: ' + qrError.message : 'Failed to get QR code: ' + qrError.message
+      );
+      setIsLoading(false);
+    }
+  };
+  
   // Initial fetch of status
   useEffect(() => {
-    fetchStatus();
+    fetchQrCode();
     
     // Clean up polling interval on unmount
     return () => {
@@ -269,6 +313,20 @@ export default function ConnectWhatsAppPage() {
     };
   }, [botId]);
   
+  // Add a QR refresh interval to ensure we always have a fresh QR
+  useEffect(() => {
+    // Refresh QR code every 20 seconds to avoid expiration
+    const qrRefreshInterval = setInterval(() => {
+      if (!isConnected) {
+        fetchQrCode();
+      }
+    }, 20000);
+    
+    return () => {
+      clearInterval(qrRefreshInterval);
+    };
+  }, [botId, isConnected]);
+  
   return (
     <div className={`container max-w-3xl mx-auto py-8 font-cairo ${isRtl ? 'rtl' : 'ltr'}`}>
       <Card className="shadow-lg">
@@ -276,13 +334,13 @@ export default function ConnectWhatsAppPage() {
           <CardTitle>{isRtl ? 'اتصال واتساب' : 'Connect WhatsApp'}</CardTitle>
           <CardDescription>
             {botName && <span className="font-semibold">{botName}</span>}
-            <p className="mt-2">
-              {isRtl 
-                ? 'امسح رمز QR باستخدام تطبيق واتساب على هاتفك لربط البوت الخاص بك'
-                : 'Scan the QR code with WhatsApp on your phone to connect your bot'
-              }
-            </p>
           </CardDescription>
+          <div className="mt-2 text-sm text-muted-foreground">
+            {isRtl 
+              ? 'امسح رمز QR باستخدام تطبيق واتساب على هاتفك لربط البوت الخاص بك'
+              : 'Scan the QR code with WhatsApp on your phone to connect your bot'
+            }
+          </div>
         </CardHeader>
         <CardContent className="flex flex-col items-center space-y-6">
           {isLoading && !qrCode && !isConnected && (
@@ -316,21 +374,51 @@ export default function ConnectWhatsAppPage() {
           
           {qrCode && !isConnected && (
             <div className="flex flex-col items-center space-y-4">
-              <div className="bg-white p-4 rounded-lg">
-                <Image 
-                  src={qrCode} 
-                  alt="WhatsApp QR Code" 
-                  width={300} 
-                  height={300}
-                  priority
-                />
+              <div className="mb-6 bg-white p-4 rounded-lg">
+                <div className="qr-code-container" style={{ minHeight: '264px', minWidth: '264px' }}>
+                  <img
+                    src={qrCode}
+                    alt="WhatsApp QR Code"
+                    className="w-64 h-64 mx-auto"
+                    style={{ imageRendering: 'pixelated' }}
+                    onError={(e) => {
+                      console.error("QR image failed to load");
+                      e.target.style.display = 'none';
+                      setTimeout(fetchQrCode, 2000);
+                    }}
+                  />
+                </div>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
-                {isRtl 
-                  ? 'افتح واتساب على هاتفك وانقر على النقاط الثلاث ثم اختر "الأجهزة المرتبطة" ثم "ربط جهاز" ثم امسح رمز QR هذا'
-                  : 'Open WhatsApp on your phone, tap the three dots, select "Linked Devices", tap "Link a device", then scan this QR code'
-                }
-              </p>
+              <div className="text-sm text-gray-600 dark:text-gray-400 text-center">
+                {isRtl ? 'امسح رمز QR هذا باستخدام تطبيق واتساب على هاتفك' : 'Scan this QR code with WhatsApp on your phone'}
+              </div>
+            </div>
+          )}
+          
+          {!qrCode && !isConnected && !error && (
+            <div className="flex flex-col items-center space-y-4">
+              <div className="mb-6 bg-white p-4 rounded-lg">
+                <div className="w-64 h-64 border border-dashed border-gray-300 rounded-lg flex items-center justify-center">
+                  <div className="text-center p-4">
+                    <Spinner size="lg" className="mb-4" />
+                    <p className="text-muted-foreground">
+                      {statusMessage || (isRtl ? 'جاري إنشاء رمز QR...' : 'Generating QR code...')}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-400 text-center">
+                {isRtl ? 'يرجى الانتظار بينما نقوم بإنشاء رمز QR...' : 'Please wait while we generate your QR code...'}
+              </div>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setStatusMessage(isRtl ? 'جاري تحديث رمز QR...' : 'Refreshing QR code...');
+                  fetchQrCode();
+                }}
+              >
+                {isRtl ? 'تحديث رمز QR' : 'Refresh QR Code'}
+              </Button>
             </div>
           )}
           

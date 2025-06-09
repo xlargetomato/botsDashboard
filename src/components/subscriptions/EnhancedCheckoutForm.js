@@ -22,6 +22,10 @@ const EnhancedCheckoutForm = ({
   renderPeriodSelector = null
 }) => {
   const router = useRouter();
+  
+  // Log the subscription type received from props
+  console.log('EnhancedCheckoutForm received subscriptionType:', subscriptionType);
+
   const [formData, setFormData] = useState({
     firstName: user?.first_name || '',
     lastName: user?.last_name || '',
@@ -198,17 +202,45 @@ const EnhancedCheckoutForm = ({
       }
     }
     
+    // Validate form for payment step
+    const errors = validateForm();
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+    
+    // Start processing payment
     setIsProcessing(true);
     setError('');
-    setMessage(null);
     
     try {
-      const errors = validateForm();
-      if (Object.keys(errors).length > 0) {
-        setFormErrors(errors);
-        setIsProcessing(false);
-        return;
-      }
+      // Prepare data for payment processing
+      const paymentData = {
+        plan_id: selectedPlan?.id,
+        subscription_type: subscriptionType, // Ensure subscription type is passed
+        amount: calculateTotal(),
+        user: {
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          email: formData.email,
+          phone: formData.phone,
+          address: formData.address,
+          city: formData.city,
+          country: formData.country,
+          postal_code: formData.postalCode
+        },
+        promo_code: appliedCoupon?.code || '',
+        discount: appliedCoupon?.discount || 0,
+        // Include callback URLs with subscription type parameter
+        success_url: `${origin}/dashboard/client/subscriptions/success?subscriptionType=${subscriptionType}`,
+        cancel_url: `${origin}/dashboard/client/subscriptions/cancel?subscriptionType=${subscriptionType}`,
+        // Include metadata with subscription type for payment gateway
+        metadata: {
+          subscriptionType: subscriptionType
+        }
+      };
+      
+      console.log('Payment data:', paymentData);
       
       const transactionId = `SUB-${Date.now()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;      
       // Clean plan name for consistent identification
@@ -221,15 +253,29 @@ const EnhancedCheckoutForm = ({
         content: t('Connecting to payment gateway...')
       });
 
-      // Include plan details directly in the callback URL to ensure they're always available
-      const callbackUrlWithPlanDetails = `${origin || window.location.origin}/dashboard/client/subscriptions/checkout?status=success&txn_id=${transactionId}&planId=${encodeURIComponent(exactPlanId)}&planName=${encodeURIComponent(cleanPlanName)}`;
+      // Calculate the total price with any applicable discounts
+      const totalAmount = parseFloat(calculateTotal());
       
-      console.log('Including plan details in callback URL:', { planId: exactPlanId, planName: cleanPlanName });
+      console.log('CHECKOUT FORM VALUES:', {
+        subscriptionType: subscriptionType,
+        planId: exactPlanId,
+        amount: totalAmount
+      });
+      
+      // Include plan details directly in the callback URL to ensure they're always available
+      const callbackUrlWithPlanDetails = `${origin || window.location.origin}/dashboard/client/subscriptions/checkout?status=success&txn_id=${transactionId}&planId=${encodeURIComponent(exactPlanId)}&planName=${encodeURIComponent(cleanPlanName)}&subscriptionType=${encodeURIComponent(subscriptionType)}&amount=${encodeURIComponent(totalAmount)}`;
+      
+      console.log('Including plan details in callback URL:', { 
+        planId: exactPlanId, 
+        planName: cleanPlanName,
+        subscriptionType: subscriptionType,
+        amount: totalAmount
+      });
       
       const invoicePayload = {
         subscriptionId: exactPlanId, // Use the exactPlanId to ensure consistency
         callbackUrl: callbackUrlWithPlanDetails,
-        amount: parseFloat(calculateTotal()),
+        amount: totalAmount,
         customerInfo: {
           clientName: `${formData.firstName} ${formData.lastName}`,
           clientEmail: formData.email,
@@ -247,9 +293,20 @@ const EnhancedCheckoutForm = ({
         metadata: {
           exactPlanName: cleanPlanName,
           exactPlanId: exactPlanId,
-          subscriptionType: subscriptionType
-        }
+          subscriptionType: subscriptionType,
+          amount: totalAmount
+        },
+        // Also include at the top level for APIs that might not check metadata
+        subscriptionType: subscriptionType,
+        planName: cleanPlanName,
+        planId: exactPlanId
       };
+      
+      console.log('Sending invoice payload with subscription details:', {
+        subscriptionType: subscriptionType,
+        amount: totalAmount,
+        planId: exactPlanId
+      });
       
       if (appliedCoupon?.discount || discount) {
         invoicePayload.discountAmount = selectedPlan.price * ((appliedCoupon?.discount || discount) / 100);

@@ -349,7 +349,23 @@ export async function POST(request) {
         }
         
         // Determine the correct subscription type
-        const subscriptionType = requestData.metadata?.subscriptionType || 'monthly';
+        const subscriptionType = requestData.subscriptionType || requestData.metadata?.subscriptionType || 'monthly';
+        
+        // Log the subscription type and amount being used
+        console.log('Creating payment intent with:', {
+          subscriptionType,
+          amount: parseFloat(paymentAmount),
+          planId: planIdToUse,
+          metadata: requestData.metadata
+        });
+        
+        // Ensure subscription type is included in the invoice data
+        const invoiceMetadata = {
+          subscriptionType,
+          amount: parseFloat(paymentAmount),
+          planId: planIdToUse,
+          ...(requestData.metadata || {})
+        };
         
         // Store subscription details in the payment_intent table for later use
         // No subscription record is created yet
@@ -368,7 +384,7 @@ export async function POST(request) {
             requestData.promoCode || null
           ]);
           
-          console.log('Created payment intent with plan ID:', planIdToUse);
+          console.log('Created payment intent with plan ID:', planIdToUse, 'subscription type:', subscriptionType, 'amount:', parseFloat(paymentAmount));
         } catch (paymentIntentError) {
           console.error('Error creating payment intent:', paymentIntentError);
           throw new Error('Failed to create payment intent record');
@@ -415,7 +431,7 @@ export async function POST(request) {
             effectiveOrderNumber,
             paylinkInvoiceId,
             paylinkReference,
-            JSON.stringify(invoiceResult)
+            JSON.stringify(invoiceMetadata)
           ]);
           
           console.log('DEBUG: Successfully inserted transaction into payment_transactions table with:', {

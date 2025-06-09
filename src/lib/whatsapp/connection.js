@@ -63,9 +63,18 @@ export async function initWhatsAppConnection(botId) {
       // If we got a QR code, store it
       if (qr) {
         try {
-          // Generate QR code
-          const qrUrl = await QRCode.toDataURL(qr);
-          connectionStatus.set(botId, { qr: qrUrl, connected: false });
+          // Make sure we generate a valid QR data URL - this is critical
+          const qrUrl = await QRCode.toDataURL(qr, { 
+            errorCorrectionLevel: 'H',
+            margin: 1,
+            scale: 8
+          });
+          // Store the QR in the connection status with a timestamp
+          connectionStatus.set(botId, { 
+            qr: qrUrl, 
+            connected: false, 
+            qrTimestamp: Date.now() 
+          });
           console.log(`QR code generated for bot ${botId}`);
         } catch (qrError) {
           console.error('Error generating QR code:', qrError);
@@ -445,6 +454,53 @@ export async function initWhatsAppConnection(botId) {
   }
 }
 
+// Reset a bot's connection and clear auth data
+export async function resetBotConnection(botId) {
+  try {
+    console.log(`Resetting connection for bot ${botId}`);
+    
+    // Close any active connection
+    if (activeConnections.has(botId)) {
+      const { sock } = activeConnections.get(botId);
+      try {
+        if (sock && typeof sock.end === 'function' && sock.ws && sock.ws.readyState === 1) {
+          sock.end();
+        }
+      } catch (error) {
+        console.error('Error closing existing connection:', error);
+      }
+      activeConnections.delete(botId);
+    }
+    
+    // Clear connection status
+    connectionStatus.delete(botId);
+    connectionErrors.delete(botId);
+    
+    // Delete auth files
+    const botAuthDir = path.join(AUTH_DIR, botId.toString());
+    try {
+      await fs.rm(botAuthDir, { recursive: true, force: true });
+      console.log(`Auth directory deleted for bot ${botId}`);
+    } catch (deleteError) {
+      console.error(`Error deleting auth directory for bot ${botId}:`, deleteError);
+      // Continue even if deletion fails
+    }
+    
+    // Clear session data from database
+    await executeQuery(`
+      UPDATE whatsapp_bots
+      SET whatsapp_session = NULL
+      WHERE id = ?
+    `, [botId]);
+    
+    // Reinitialize connection
+    return await initWhatsAppConnection(botId);
+  } catch (error) {
+    console.error(`Error resetting connection for bot ${botId}:`, error);
+    return false;
+  }
+}
+
 // Reject a WhatsApp call
 export async function rejectCall(botId, callId, callerId) {
   try {
@@ -464,29 +520,35 @@ export async function rejectCall(botId, callId, callerId) {
   }
 }
 
-// Get WhatsApp connection status for a bot
+// Get connection status by bot ID
 export async function getConnectionStatus(botId) {
   try {
-  const status = connectionStatus.get(botId);
-    const error = connectionErrors.get(botId);
+    // Get the current status from the map
+    const status = connectionStatus.get(botId) || { qr: null, connected: false };
     
-    if (!status) {
-      return { 
-        connected: false,
-        error: error || { message: 'Bot not initialized' }
-      };
-}
-
-    return {
-      ...status,
-      error
-    };
+    // If we don't have a status yet, check if we have a connection in the connections map
+    if (!status.connected && !status.qr) {
+      const hasActiveConnection = activeConnections.has(botId);
+      
+      // If we have an active connection but no status, update it
+      if (hasActiveConnection) {
+        // Get the socket
+        const { sock } = activeConnections.get(botId);
+        
+        // Try to determine connection state from the socket
+        const isConnected = sock && sock.user && sock.user.id;
+        
+        if (isConnected) {
+          connectionStatus.set(botId, { qr: null, connected: true });
+          return { qr: null, connected: true };
+        }
+      }
+    }
+    
+    return status;
   } catch (error) {
-    console.error('Error getting connection status:', error);
-    return { 
-      connected: false,
-      error: { message: 'Error getting status' }
-    };
+    console.error(`Error getting connection status for bot ${botId}:`, error);
+    return { qr: null, connected: false, error: error.message };
   }
 }
 
@@ -590,11 +652,41 @@ export async function cleanupExpiredBlocks() {
   }
 }
 
+// Get bot error
+export function getBotError(botId) {
+  return connectionErrors.get(botId) || null;
+}
+
+// Verify if a session is active by checking with the WhatsApp servers
+export async function verifyActiveSession(botId) {
+  try {
+    // Check if we have an active connection
+    if (activeConnections.has(botId) && connectionStatus.get(botId)?.connected) {
+      return true;
+    }
+    
+    // If not, try to initialize a new connection
+    await initWhatsAppConnection(botId);
+    
+    // Wait a moment for connection to establish
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Check if the connection is now active
+    return connectionStatus.get(botId)?.connected || false;
+  } catch (error) {
+    console.error(`Error verifying session for bot ${botId}:`, error);
+    return false;
+  }
+}
+
 export default {
   initWhatsAppConnection,
   getConnectionStatus,
   getConnectedBots,
   sendMessage,
   closeBotConnection,
-  cleanupExpiredBlocks
+  cleanupExpiredBlocks,
+  getBotError,
+  verifyActiveSession,
+  resetBotConnection
 }; 

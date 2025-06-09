@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db/config';
 import { resetBotConnection } from '@/lib/whatsapp/connection';
 
-export async function POST(request, { params }) {
+export async function POST(request, context) {
   try {
-    // Get bot ID from params using destructuring
-    const { botId } = params;
+    // Get bot ID from params using proper context extraction
+    const { params } = context;
+    const botId = params.botId;
     
     // Validate bot ID
     if (!botId) {

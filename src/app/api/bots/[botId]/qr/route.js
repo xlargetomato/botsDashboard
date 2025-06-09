@@ -6,10 +6,12 @@ import { executeQuery } from '@/lib/db/config.js';
 export const maxDuration = 120;
 
 // Endpoint to get QR code for a bot
-export async function GET(request, { params }) {
+export async function GET(request, context) {
   try {
-    // Get bot ID from params - using proper destructuring 
-    const { botId } = params;
+    // Get bot ID from params - properly awaiting the params object
+    const { params } = context;
+    const botId = params.botId;
+    
     const searchParams = request.nextUrl.searchParams;
     const forcereset = searchParams.get('forcereset');
     const isPoll = searchParams.get('poll');
@@ -44,21 +46,20 @@ export async function GET(request, { params }) {
     const hasSession = bot.whatsapp_session !== null;
     
     // Get current connection status
-    const status = getConnectionStatus(botId);
+    const status = await getConnectionStatus(botId);
     
-    // First check if the bot already has a session - if so, don't show QR
-    if (hasSession && !forcereset) {
+    // Only suppress QR if session exists AND connection is verified as active
+    if (hasSession && status.connected && !forcereset) {
       // Verify if we can connect with existing session
       const sessionQuery = await executeQuery(
         'SELECT updated_at FROM whatsapp_bots WHERE id = ? AND whatsapp_session IS NOT NULL',
         [botId]
       );
-      
       if (sessionQuery.length > 0) {
-        console.log(`Bot ${botId} has a stored session, no need for QR code`);
+        console.log(`Bot ${botId} has a stored session and is connected, no need for QR code`);
         return NextResponse.json({ 
           active: true,
-          message: 'Bot has an existing session, no QR needed. Use force reset to start a new session.'
+          message: 'Bot has an existing session and is connected, no QR needed. Use force reset to start a new session.'
         });
       }
     }
@@ -91,7 +92,11 @@ export async function GET(request, { params }) {
     // Return QR code if available
     if (status.qr) {
       console.log(`Returning QR code for bot ${botId}`);
-      return NextResponse.json({ qr: status.qr });
+      return NextResponse.json({ 
+        qr: status.qr, 
+        timestamp: status.qrTimestamp || Date.now(),
+        success: true
+      });
     }
     
     // Check for errors
@@ -110,7 +115,7 @@ export async function GET(request, { params }) {
       const lastInitTime = request.nextUrl.searchParams.get('lastInit');
       const now = Date.now();
       
-      if (!lastInitTime || now - parseInt(lastInitTime) > 10000) {
+      if (!lastInitTime || now - parseInt(lastInitTime) > 5000) {
         console.log(`Initializing connection for bot ${botId}`);
         const initialized = await initWhatsAppConnection(botId);
         

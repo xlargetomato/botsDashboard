@@ -30,32 +30,59 @@ async function updateTransactionStatus(transactionId, status, responseData) {
   }
 }
 
-// Helper function to safely update subscription status
-async function updateSubscriptionStatus(subscriptionId, status, paymentConfirmed = false) {
+/**
+ * Updates the status of a subscription in the database
+ * @param {string} subscriptionId - The ID of the subscription to update
+ * @param {string} status - The new status ('active', 'payment_failed', etc.)
+ * @param {boolean} paymentConfirmed - Whether payment has been confirmed
+ * @param {string} subscriptionType - Optional subscription type to update
+ * @returns {boolean} - Whether the update was successful
+ */
+async function updateSubscriptionStatus(subscriptionId, status, paymentConfirmed = false, subscriptionType = null) {
   try {
-    // For active subscriptions, set the start date to now
-    let startDateClause = '';
-    let params = [status, paymentConfirmed, subscriptionId];
+    // Prepare parameters for the update query
+    const params = [status, paymentConfirmed ? 1 : 0, subscriptionId];
     
+    // Start with base update clause
+    let startDateClause = '';
+    
+    // For active subscriptions, set the start date to now
     if (status === 'active') {
       startDateClause = ', started_date = NOW()';
       
       // Also calculate expiry date based on subscription_type
-      const subscriptionData = await executeQuery('SELECT subscription_type FROM subscriptions WHERE id = ?', [subscriptionId]);
+      let subscriptionData;
       
-      if (subscriptionData && subscriptionData.length > 0) {
-        const subscriptionType = subscriptionData[0].subscription_type;
-        let expirySql = '';
-        
-        if (subscriptionType === 'yearly') {
-          expirySql = ', expired_date = DATE_ADD(NOW(), INTERVAL 1 YEAR)';
-        } else if (subscriptionType === 'monthly') {
-          expirySql = ', expired_date = DATE_ADD(NOW(), INTERVAL 1 MONTH)';
-        } else if (subscriptionType === 'weekly') {
-          expirySql = ', expired_date = DATE_ADD(NOW(), INTERVAL 1 WEEK)';
+      // If subscription type is provided, use it directly
+      if (subscriptionType) {
+        console.log(`Using provided subscription type for expiry calculation: ${subscriptionType}`);
+      } else {
+        // Otherwise query the database for the subscription type
+        subscriptionData = await executeQuery('SELECT subscription_type FROM subscriptions WHERE id = ?', [subscriptionId]);
+        if (subscriptionData && subscriptionData.length > 0) {
+          subscriptionType = subscriptionData[0].subscription_type;
         }
-        
-        startDateClause += expirySql;
+      }
+      
+      // Calculate expiry based on subscription type
+      let expirySql = '';
+      if (subscriptionType === 'yearly') {
+        expirySql = ', expired_date = DATE_ADD(NOW(), INTERVAL 1 YEAR)';
+        console.log('Setting YEARLY expiration date for subscription:', subscriptionId);
+      } else if (subscriptionType === 'monthly') {
+        expirySql = ', expired_date = DATE_ADD(NOW(), INTERVAL 1 MONTH)';
+        console.log('Setting MONTHLY expiration date for subscription:', subscriptionId);
+      } else if (subscriptionType === 'weekly') {
+        expirySql = ', expired_date = DATE_ADD(NOW(), INTERVAL 1 WEEK)';
+        console.log('Setting WEEKLY expiration date for subscription:', subscriptionId);
+      }
+      
+      startDateClause += expirySql;
+      
+      // If subscription type is provided, update it in the database
+      if (subscriptionType) {
+        startDateClause += `, subscription_type = '${subscriptionType}'`;
+        console.log(`Updating subscription type to: ${subscriptionType}`);
       }
     } else if (status === 'payment_failed' || status === 'failed') {
       // For failed payments, ensure we reset any dates
@@ -102,6 +129,8 @@ export async function GET(request) {
     const subscriptionId = url.searchParams.get('subscription_id');
     const orderNumber = url.searchParams.get('orderNumber');
     const transactionNo = url.searchParams.get('transactionNo');
+    // Get subscription type from query parameters
+    const subscriptionType = url.searchParams.get('subscriptionType');
     
     // Record these in response data
     responseData.transactionId = txnId || null;
@@ -110,6 +139,7 @@ export async function GET(request) {
     responseData.subscriptionId = subscriptionId || null;
     responseData.orderNumber = orderNumber || null;
     responseData.transactionNo = transactionNo || null;
+    responseData.subscriptionType = subscriptionType || null;
     
     if (!txnId && !paymentIntentId && !invoiceId && !subscriptionId && !orderNumber && !transactionNo) {
       responseData.message = 'Missing transaction ID, payment intent ID, invoice ID, subscription ID, or other transaction identifiers';
@@ -119,7 +149,7 @@ export async function GET(request) {
     // Don't run Paylink verification yet - we'll do that in the main flow
     // This just prepares variables and logs input parameters
     
-    console.log(`Checking transaction status for txn_id: ${txnId}, payment_intent_id: ${paymentIntentId}, invoice_id: ${invoiceId}, subscription_id: ${subscriptionId}, orderNumber: ${orderNumber}, transactionNo: ${transactionNo}`);
+    console.log(`Checking transaction status for txn_id: ${txnId}, payment_intent_id: ${paymentIntentId}, invoice_id: ${invoiceId}, subscription_id: ${subscriptionId}, orderNumber: ${orderNumber}, transactionNo: ${transactionNo}, subscriptionType: ${subscriptionType}`);
     
     // First, try to find the transaction in our database using all available identifiers
     let dbTransaction = null;
@@ -134,8 +164,8 @@ export async function GET(request) {
       
       // Add conditions for each identifier we have
       if (txnId) {
-        query += ` OR transaction_id = ?`;
-        params.push(txnId);
+        query += ` OR transaction_id = ? OR order_number = ?`;
+        params.push(txnId, txnId);
       }
       
       if (invoiceId) {
@@ -144,7 +174,7 @@ export async function GET(request) {
       }
       
       if (transactionNo) {
-        query += ` OR paylink_reference = ? OR transaction_no = ?`;
+        query += ` OR transaction_id = ? OR order_number = ?`;
         params.push(transactionNo, transactionNo);
       }
       
@@ -278,15 +308,17 @@ export async function GET(request) {
                     try {
                       // Get payment intent details
                       const paymentIntentQuery = await safeQuery(async () => {
-                        let query = 'SELECT * FROM payment_intents WHERE ';
+                        // Since payment_intent table doesn't exist, we'll check for transaction details
+                        // in payment_transactions table instead
+                        let query = 'SELECT * FROM payment_transactions WHERE ';
                         let params = [];
                         
                         if (paymentIntentId) {
                           query += 'id = ?';
                           params.push(paymentIntentId);
                         } else if (txnId) {
-                          query += 'transaction_id = ?';
-                          params.push(txnId);
+                          query += 'transaction_id = ? OR order_number = ?';
+                          params.push(txnId, txnId);
                         }
                         
                         return executeQuery(query, params);
@@ -295,6 +327,45 @@ export async function GET(request) {
                       if (paymentIntentQuery && paymentIntentQuery.length > 0) {
                         const paymentIntent = paymentIntentQuery[0];
                         
+                        // Get subscription type from URL query parameters if available
+                        const urlParams = new URL(request.url).searchParams;
+                        const urlSubscriptionType = urlParams.get('subscriptionType');
+                        const urlAmount = urlParams.get('amount');
+                        
+                        console.log('URL PARAMETERS:', {
+                          subscriptionType: urlSubscriptionType,
+                          amount: urlAmount
+                        });
+                        
+                        // Determine the amount and subscription type with better fallbacks
+                        const finalAmount = urlAmount || paymentIntent.amount || paymentDetails?.amount || null;
+                        const finalSubscriptionType = urlSubscriptionType || 
+                                                        requestData?.subscriptionType || 
+                                                        paymentDetails?.subscriptionType || 
+                                                        paymentIntent.subscription_type || 
+                                                        'monthly';
+                        
+                        // Add enhanced debug logging
+                        console.log('Creating subscription with enhanced data:', {
+                          paymentIntentId: paymentIntent.id,
+                          transactionId: txnId,
+                          invoiceId: invoiceId,
+                          amount: finalAmount,
+                          subscriptionType: finalSubscriptionType,
+                          // Log all possible sources to help debugging
+                          amountSources: {
+                            fromUrl: urlAmount,
+                            fromPaymentIntent: paymentIntent.amount,
+                            fromPaymentDetails: paymentDetails?.amount
+                          },
+                          typeSources: {
+                            fromUrl: urlSubscriptionType,
+                            fromRequestData: requestData?.subscriptionType,
+                            fromPaymentDetails: paymentDetails?.subscriptionType,
+                            fromPaymentIntent: paymentIntent.subscription_type
+                          }
+                        });
+                        
                         // Make API call to create subscription
                         const createResponse = await fetch(`${url.origin}/api/subscriptions/create-from-payment`, {
                           method: 'POST',
@@ -302,17 +373,25 @@ export async function GET(request) {
                           body: JSON.stringify({
                             paymentIntentId: paymentIntent.id,
                             transactionId: txnId,
-                            invoiceId: invoiceId
+                            invoiceId: invoiceId,
+                            planId: paymentIntent.plan_id,
+                            subscriptionType: finalSubscriptionType,
+                            amount: finalAmount
                           })
                         });
                         
                         if (createResponse.ok) {
                           const subscriptionData = await createResponse.json();
+                          console.log('Subscription created successfully:', subscriptionData);
                           responseData.subscription = subscriptionData.subscription;
                           responseData.message = 'Payment confirmed and subscription created successfully';
                         } else {
-                          console.error('Failed to create subscription from payment intent');
+                          const errorData = await createResponse.json().catch(() => ({}));
+                          console.error('Failed to create subscription from payment intent:', errorData);
+                          responseData.subscriptionError = errorData.error || 'Failed to create subscription';
                         }
+                      } else {
+                        console.log('No payment intent found for:', { paymentIntentId, txnId });
                       }
                     } catch (createError) {
                       console.error('Error creating subscription from verified payment:', createError);
@@ -363,13 +442,13 @@ export async function GET(request) {
     let whereClause = '';
     
     if (txnId && paymentIntentId) {
-      whereClause = 'WHERE (transaction_id = ? OR paylink_reference = ?) OR payment_intent_id = ?';
+      whereClause = 'WHERE (transaction_id = ? OR order_number = ?) OR id = ?';
       queryParams = [txnId, txnId, paymentIntentId];
     } else if (txnId) {
-      whereClause = 'WHERE transaction_id = ? OR paylink_reference = ?';
+      whereClause = 'WHERE transaction_id = ? OR order_number = ?';
       queryParams = [txnId, txnId];
     } else if (paymentIntentId) {
-      whereClause = 'WHERE payment_intent_id = ?';
+      whereClause = 'WHERE id = ?';
       queryParams = [paymentIntentId];
     }
     
@@ -439,13 +518,13 @@ export async function GET(request) {
                       
                       if (paylinkStatus === 'paid' || paylinkStatus === 'completed') {
                         // Payment was actually completed, update subscription
-                        await updateSubscriptionStatus(subscriptionId, 'active', true);
+                        await updateSubscriptionStatus(subscriptionId, 'active', true, subscriptionType);
                         responseData.status = 'completed';
                         responseData.message = 'Payment confirmed via direct Paylink check';
                         return NextResponse.json(responseData);
                       } else if (paylinkStatus === 'failed' || paylinkStatus === 'cancelled' || paylinkStatus === 'expired') {
                         // Payment failed, update subscription
-                        await updateSubscriptionStatus(subscriptionId, 'payment_failed', false);
+                        await updateSubscriptionStatus(subscriptionId, 'payment_failed', false, subscriptionType);
                         responseData.status = 'failed';
                         responseData.message = 'Payment failed via direct Paylink check';
                         return NextResponse.json(responseData);
@@ -507,11 +586,37 @@ export async function GET(request) {
                 invoiceDetails.data
               );
               
+              // Extract subscription type from transaction data or payment gateway response
+              let subscriptionTypeToUse = null;
+              try {
+                if (transaction.payment_gateway_response) {
+                  const responseData = JSON.parse(transaction.payment_gateway_response);
+                  if (responseData.subscriptionType) {
+                    subscriptionTypeToUse = responseData.subscriptionType;
+                    console.log('Found subscription type in payment gateway response:', subscriptionTypeToUse);
+                  } else if (responseData.metadata && responseData.metadata.subscriptionType) {
+                    subscriptionTypeToUse = responseData.metadata.subscriptionType;
+                    console.log('Found subscription type in payment gateway metadata:', subscriptionTypeToUse);
+                  }
+                }
+              } catch (parseError) {
+                console.error('Error parsing payment gateway response:', parseError);
+              }
+              
+              // If we still don't have a subscription type, check URL parameters
+              if (!subscriptionTypeToUse) {
+                subscriptionTypeToUse = url.searchParams.get('subscriptionType');
+                if (subscriptionTypeToUse) {
+                  console.log('Using subscription type from URL parameters:', subscriptionTypeToUse);
+                }
+              }
+              
               if (txnUpdated && transaction.subscription_id) {
                 await updateSubscriptionStatus(
                   transaction.subscription_id, 
                   'active', 
-                  true // payment confirmed
+                  true, // payment confirmed
+                  subscriptionTypeToUse
                 );
               }
               
@@ -519,6 +624,10 @@ export async function GET(request) {
               responseData.status = 'completed';
               transaction.status = 'completed';
               
+              // If we have a subscription type, include it in the response
+              if (subscriptionTypeToUse) {
+                responseData.subscriptionType = subscriptionTypeToUse;
+              }
             } else if (paylinkStatus === 'failed' || paylinkStatus === 'cancelled' || paylinkStatus === 'expired') {
               // Use individual update functions that handle errors internally
               const txnUpdated = await updateTransactionStatus(
@@ -531,7 +640,8 @@ export async function GET(request) {
                 await updateSubscriptionStatus(
                   transaction.subscription_id, 
                   'payment_failed', 
-                  false // payment not confirmed
+                  false, // payment not confirmed
+                  subscriptionTypeToUse
                 );
               }
               

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "db:migrate": "node src/lib/db/migrationRunner.js",
-    "db:check": "node src/lib/db/migrationRunner.js --check"
+    "db:check": "node src/lib/db/migrationRunner.js --check",
+    "db:seed": "node --experimental-modules scripts/seed-db.js"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",

@@ -26,6 +26,10 @@ const FixedCheckout = (props) => {
   const [showAllPlans, setShowAllPlans] = useState(true); // Show all plans by default
   const [message, setMessage] = useState(null);
 
+  // Log the subscription type received from props
+  console.log('FixedCheckout received props.subscriptionType:', props.subscriptionType);
+  console.log('FixedCheckout initialized subscriptionType state:', subscriptionType);
+  
   // Get the full URL including ngrok domain if available
   const getOrigin = () => {
     if (typeof window !== 'undefined') {
@@ -59,7 +63,9 @@ const FixedCheckout = (props) => {
       
       return {
         ...plan,
-        price
+        price,
+        subscription_type: newType, // Ensure the plan has the correct subscription type
+        type: newType // Add type field for compatibility
       };
     });
     
@@ -75,7 +81,12 @@ const FixedCheckout = (props) => {
       if (selectedPlan) {
         const updatedSelectedPlan = updatedPlans.find(p => p.id === selectedPlan.id);
         if (updatedSelectedPlan) {
-          setSelectedPlan(updatedSelectedPlan);
+          console.log('Updating selected plan with new subscription type:', newType);
+          setSelectedPlan({
+            ...updatedSelectedPlan,
+            subscription_type: newType,
+            type: newType
+          });
         }
       }
     };
@@ -618,7 +629,9 @@ const FixedCheckout = (props) => {
               features: features,
               features_ar: features_ar,
               isPopular: plan.is_popular || plan.isPopular || false,
-              highlight_color: plan.highlight_color || '#3B82F6' // Default to blue if no color specified
+              highlight_color: plan.highlight_color || '#3B82F6', // Default to blue if no color specified
+              subscription_type: subscriptionType,
+              type: subscriptionType
             };
           });
           
@@ -761,6 +774,46 @@ const FixedCheckout = (props) => {
     callbackUrlFormatter: (url) => {
       // Fix double slash issue in callback URL mentioned in memory
       return url.replace(/([^:]\/)\/+/g, "$1");
+    }
+  };
+
+  // Handle payment creation
+  const handleCreatePayment = async (paymentData) => {
+    try {
+      // Ensure subscription type is included in the payment data
+      const enhancedPaymentData = {
+        ...paymentData,
+        subscriptionType: subscriptionType,
+        planId: selectedPlan?.id,
+        metadata: {
+          ...paymentData.metadata,
+          subscriptionType: subscriptionType
+        }
+      };
+      
+      console.log('Creating payment with data:', enhancedPaymentData);
+      
+      // Use the current origin for API calls when using ngrok or similar tunnels
+      const apiBase = typeof window !== 'undefined' ? window.location.origin : '';
+      
+      // Make the API call to create payment
+      const response = await fetch(`${apiBase}/api/paylink/direct-invoice`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(enhancedPaymentData),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed with status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Error creating payment:', error);
+      throw error;
     }
   };
 

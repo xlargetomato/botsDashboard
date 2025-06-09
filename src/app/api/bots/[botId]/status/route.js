@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import { getConnectionStatus, getBotError, verifyActiveSession } from '@/lib/whatsapp/connection.js';
 import { executeQuery } from '@/lib/db/config.js';
 
-export async function GET(request, { params }) {
+export async function GET(request, context) {
   try {
-    // Get bot ID from params - using proper await
-    const { botId } = params;
+    // Get bot ID from params - properly awaiting the params object
+    const { params } = context;
+    const botId = params.botId;
     
     // Validate bot ID
     if (!botId) {
@@ -29,7 +30,7 @@ export async function GET(request, { params }) {
     const forceVerify = url.searchParams.get('verify') === 'true';
     
     // Get connection status
-    let status = getConnectionStatus(botId);
+    let status = await getConnectionStatus(botId);
     let isConnectionVerified = false;
     
     // If not connected or force verify is requested, verify the session
@@ -39,7 +40,7 @@ export async function GET(request, { params }) {
       
       if (isActive) {
         // Session is actually active, update our status
-        status = getConnectionStatus(botId);
+        status = await getConnectionStatus(botId);
         isConnectionVerified = true;
         
         // Also update the database if needed - only use status column which definitely exists
@@ -83,7 +84,7 @@ export async function GET(request, { params }) {
           
           if (isActive) {
             // Update our status
-            status = getConnectionStatus(botId);
+            status = await getConnectionStatus(botId);
             isConnectionVerified = true;
             
             // Update database if needed - only use status column which definitely exists
