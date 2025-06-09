@@ -61,10 +61,24 @@ export async function POST(request) {
     // Send verification email with the code
     try {
       await sendVerificationEmail(email, verificationCode, name);
+      console.log('Verification email sent to:', email);
     } catch (emailError) {
-      console.error('Error sending verification email:', emailError);
-      // Continue with registration even if email fails
-      // In a production environment, you might want to handle this differently
+      console.error('Detailed error sending verification email from register endpoint:', emailError);
+      
+      // Add more structured error logging
+      if (emailError.code) {
+        console.error('Error code:', emailError.code);
+      }
+      
+      if (emailError.command) {
+        console.error('Failed command:', emailError.command);
+      }
+      
+      // Return error to the client instead of continuing silently
+      return NextResponse.json(
+        { error: 'Failed to send verification email', details: emailError.message },
+        { status: 500 }
+      );
     }
     
     console.log('Registered user:', { userId, name, email });

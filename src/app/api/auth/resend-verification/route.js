@@ -48,10 +48,24 @@ export async function POST(request) {
     // Send verification email with the code
     try {
       await sendVerificationEmail(email, verificationCode, user.name);
+      console.log('Verification email resent to:', email);
     } catch (emailError) {
-      console.error('Error sending verification email:', emailError);
+      console.error('Detailed error sending verification email from resend endpoint:', emailError);
+      
+      // Add more structured error logging
+      if (emailError.code) {
+        console.error('Error code:', emailError.code);
+      }
+      
+      if (emailError.command) {
+        console.error('Failed command:', emailError.command);
+      }
+      
       return NextResponse.json(
-        { error: 'Failed to send verification email' },
+        { 
+          error: 'Failed to send verification email', 
+          details: emailError.message 
+        },
         { status: 500 }
       );
     }

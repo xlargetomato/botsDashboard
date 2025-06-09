@@ -17,6 +17,7 @@ export default function LoginForm() {
   const searchParams = useSearchParams();
   const redirectPath = searchParams.get('redirect') || '/dashboard/client';
   const isRtl = i18n.language === 'ar';
+  const verified = searchParams.get('verified') === 'true';
   
   const [formData, setFormData] = useState({
     email: '',
@@ -27,6 +28,9 @@ export default function LoginForm() {
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [loginMessage, setLoginMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState(
+    verified ? (isRtl ? 'تم التحقق من بريدك الإلكتروني بنجاح. يمكنك الآن تسجيل الدخول.' : 'Your email has been verified successfully. You can now log in.') : ''
+  );
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -136,7 +140,12 @@ export default function LoginForm() {
                 </p>
               </div>
               
-
+              {/* Success Message */}
+              {successMessage && (
+                <div className="mb-4 p-3 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-md text-sm font-cairo">
+                  {successMessage}
+                </div>
+              )}
               
               {/* Login Error Message */}
               {loginMessage && (

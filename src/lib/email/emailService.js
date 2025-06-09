@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 
 // Create a transporter object using SMTP transport
 const createTransporter = () => {
-  return nodemailer.createTransport({
+  const config = {
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.SMTP_PORT || '587'),
     secure: process.env.SMTP_SECURE === 'true',
@@ -10,56 +10,127 @@ const createTransporter = () => {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASSWORD,
     },
+    debug: true, // Enable debug mode to see detailed logs
+    logger: true // Enable logger to get logs
+  };
+  
+  console.log('SMTP Configuration:', {
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    user: config.auth.user,
+    // Don't log the password for security
   });
+  
+  return nodemailer.createTransport(config);
 };
 
 // Function to send verification email
 export async function sendVerificationEmail(to, token, name) {
-  const transporter = createTransporter();
+  console.log('Sending verification email to:', to, 'with token:', token);
   
-  // Base URL from environment variable or default
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-  
-  const mailOptions = {
-    from: `"Variable" <${process.env.SMTP_USER}>`,
-    to,
-    subject: `Verify Your ${process.env.NEXT_PUBLIC_PROJECT_NAME} Account`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-        <div style="text-align: center; margin-bottom: 20px;">
-          <h1 style="color: #4a6cf7;">${process.env.NEXT_PUBLIC_PROJECT_NAME}</h1>
-        </div>
-        <div style="padding: 20px; background-color: #f9f9f9; border-radius: 8px;">
-          <h2 style="color: #333;">Hello ${name},</h2>
-          <p style="font-size: 16px; line-height: 1.5; color: #555;">
-            Thank you for registering with ${process.env.NEXT_PUBLIC_PROJECT_NAME}. To complete your registration and activate your account, please use the verification code below:
-          </p>
-          <div style="text-align: center; margin: 30px 0;">
-            <div style="background-color: #f0f0f0; padding: 15px; border-radius: 8px; font-size: 32px; letter-spacing: 5px; font-weight: bold; color: #4a6cf7; display: inline-block;">${token}</div>
-          </div>
-          <p style="font-size: 16px; line-height: 1.5; color: #555;">
-            Enter this code in the verification page to activate your account.
-          </p>
-          <p style="font-size: 16px; line-height: 1.5; color: #555;">
-            If you didn't create an account with ${process.env.NEXT_PUBLIC_PROJECT_NAME}, you can safely ignore this email.
-          </p>
-          <p style="font-size: 16px; line-height: 1.5; color: #555;">
-            This verification code will expire in 24 hours.
-          </p>
-        </div>
-        <div style="text-align: center; margin-top: 20px; color: #777; font-size: 14px;">
-          <p>&copy; ${new Date().getFullYear()} ${process.env.NEXT_PUBLIC_PROJECT_NAME}. All rights reserved.</p>
-        </div>
-      </div>
-    `,
-  };
-
   try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Verification email sent:', info.messageId);
+    const transporter = createTransporter();
+    
+    // Base URL from environment variable or default
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    
+    // Create a direct verification link
+    const verificationLink = `${baseUrl}/api/auth/verify?email=${encodeURIComponent(to)}&token=${token}`;
+    console.log('Verification link:', verificationLink);
+    
+    // Get project name from env or use a default
+    const projectName = process.env.NEXT_PUBLIC_PROJECT_NAME || 'Variable';
+    
+    const mailOptions = {
+      from: `"${projectName}" <${process.env.SMTP_USER}>`,
+      to,
+      subject: `Verify Your ${projectName} Account`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #4a6cf7;">${projectName}</h1>
+          </div>
+          <div style="padding: 20px; background-color: #f9f9f9; border-radius: 8px;">
+            <h2 style="color: #333;">Hello ${name},</h2>
+            <p style="font-size: 16px; line-height: 1.5; color: #555;">
+              Thank you for registering with ${projectName}. To complete your registration and activate your account, please use the verification code below:
+            </p>
+            <div style="text-align: center; margin: 30px 0;">
+              <div style="background-color: #f0f0f0; padding: 15px; border-radius: 8px; font-size: 32px; letter-spacing: 5px; font-weight: bold; color: #4a6cf7; display: inline-block;">${token}</div>
+            </div>
+            <p style="font-size: 16px; line-height: 1.5; color: #555;">
+              Enter this code in the verification page to activate your account.
+            </p>
+            <p style="font-size: 16px; line-height: 1.5; color: #555;">
+              Or click the button below to verify your account directly:
+            </p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${verificationLink}" style="background-color: #4a6cf7; color: white; padding: 12px 24px; text-decoration: none; border-radius: 50px; font-weight: bold; display: inline-block;">Verify My Account</a>
+            </div>
+            <p style="font-size: 16px; line-height: 1.5; color: #555;">
+              If you didn't create an account with ${projectName}, you can safely ignore this email.
+            </p>
+            <p style="font-size: 16px; line-height: 1.5; color: #555;">
+              This verification code will expire in 24 hours.
+            </p>
+          </div>
+          <div style="text-align: center; margin-top: 20px; color: #777; font-size: 14px;">
+            <p>&copy; ${new Date().getFullYear()} ${projectName}. All rights reserved.</p>
+          </div>
+        </div>
+      `,
+    };
+
+    console.log('Mail options prepared. Attempting to send email...');
+    
+    // Use a promise to handle the sendMail operation
+    const info = await new Promise((resolve, reject) => {
+      transporter.sendMail(mailOptions, (error, info) => {
+        if (error) {
+          console.error('Transporter error details:', error);
+          reject(error);
+        } else {
+          resolve(info);
+        }
+      });
+    });
+    
+    console.log('Verification email sent successfully:', info.messageId);
     return true;
   } catch (error) {
-    console.error('Error sending verification email:', error);
+    console.error('Detailed error sending verification email:', error);
+    
+    // If the error is related to authentication
+    if (error.message && error.message.includes('auth')) {
+      console.error('This appears to be an authentication error. Check your SMTP credentials.');
+    }
+    
+    // If the error is related to connection
+    if (error.message && error.message.includes('connect')) {
+      console.error('This appears to be a connection error. Check your network or SMTP server settings.');
+    }
+    
+    // Specific error for Gmail requiring web login
+    if (error.responseCode === 534 && error.message.includes('Please log in with your web browser')) {
+      console.error(`
+        ============================================================
+        GMAIL SECURITY ISSUE DETECTED
+        ============================================================
+        Your Gmail account is rejecting the connection because of security settings.
+        
+        To fix this:
+        1. Go to https://myaccount.google.com/security
+        2. Enable "Less secure app access" OR
+        3. Create an App Password at https://myaccount.google.com/apppasswords
+           and use that password instead of your regular password
+        4. Make sure 2-Step Verification is properly configured
+        
+        For more details: https://support.google.com/mail/?p=WebLoginRequired
+        ============================================================
+      `);
+    }
+    
     throw error;
   }
 }

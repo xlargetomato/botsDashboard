@@ -1,10 +1,40 @@
 import { NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db/config';
 
-// We no longer need GET requests for verification as we're using verification codes
+// Redirect GET requests to the verify page with the email parameter
 export async function GET(request) {
-  // Redirect to the verification page
-  return NextResponse.redirect(new URL('/register', request.url));
+  try {
+    // Get URL parameters
+    const url = new URL(request.url);
+    const email = url.searchParams.get('email');
+    const token = url.searchParams.get('token');
+    
+    console.log('Verification GET request received:', { email, token });
+    
+    if (!email) {
+      console.log('No email provided in verification link, redirecting to login');
+      // If no email is provided, redirect to login
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+    
+    // Redirect to the verification page with proper parameters
+    const verifyUrl = new URL('/verify', request.url);
+    verifyUrl.searchParams.set('email', email);
+    
+    // If token is provided, include it in the redirect
+    if (token) {
+      verifyUrl.searchParams.set('token', token);
+      console.log('Redirecting to verification page with email and token');
+    } else {
+      console.log('Redirecting to verification page with email only');
+    }
+    
+    return NextResponse.redirect(verifyUrl);
+  } catch (error) {
+    console.error('Verification redirect error:', error);
+    // If any error occurs, redirect to login
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
 }
 
 // Handle POST requests for verification with 6-digit code

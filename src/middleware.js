@@ -78,7 +78,8 @@ const apiRoutes = [
   '/api/admin',
   '/api/subscriptions/active',
   '/api/bots/create',
-  '/api/bots/botId/qr'
+  '/api/bots/botId/qr',
+  '/api/bots/botId/connect'
 ];
 
 export async function middleware(request) {

@@ -1,202 +1,78 @@
-import { default as makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
+// WhatsApp Connection Module using Baileys
+import { default as makeWASocket, DisconnectReason, useMultiFileAuthState } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
-import { randomUUID } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { executeQuery } from '../db/config.js';
 import QRCode from 'qrcode';
-import { delay } from '../utils/helpers.js';
-
-// Polyfills for Node.js < 18
-if (typeof globalThis.fetch !== 'function') {
-  globalThis.fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-}
-if (typeof globalThis.crypto !== 'object') {
-  globalThis.crypto = require('crypto');
-}
-if (typeof globalThis.Buffer === 'undefined') {
-  globalThis.Buffer = require('buffer').Buffer;
-}
 
 // Store active connections in memory
 const activeConnections = new Map();
 const connectionStatus = new Map();
-const connectionRetries = new Map();
 const connectionErrors = new Map();
 
 // Path for auth files
 const AUTH_DIR = path.join(process.cwd(), 'tmp', 'auth');
 
-// Max retry attempts
-const MAX_RETRY_ATTEMPTS = 5;
-
-// Use different browser profiles to try
-const BROWSER_PROFILES = [
-  ['Chrome', 'Desktop', '116.0.0.0'],
-  ['Chrome', 'Desktop', '119.0.0.0'],
-  ['Firefox', 'Desktop', '99.0.0'],
-  ['Edge', 'Desktop', '119.0.0.0'],
-  ['Safari', 'Desktop', '16.0.0']
-];
-
-// Create a compatible logger
-const createLogger = (prefix) => {
-  return {
-    info: (...args) => console.log(`[${prefix}] INFO:`, ...args),
-    debug: (...args) => console.log(`[${prefix}] DEBUG:`, ...args),
-    warn: (...args) => console.warn(`[${prefix}] WARN:`, ...args),
-    error: (...args) => console.error(`[${prefix}] ERROR:`, ...args),
-    trace: (...args) => console.log(`[${prefix}] TRACE:`, ...args),
-    child: (opts) => createLogger(`${prefix}:${opts.prefix || ''}`),
-  };
-};
-
-// Ensure the auth directory exists
-async function ensureAuthDir() {
-  try {
-    await fs.mkdir(AUTH_DIR, { recursive: true });
-    console.log(`Auth directory ensured at: ${AUTH_DIR}`);
-    return true;
-  } catch (error) {
-    console.error('Error creating auth directory:', error);
-    return false;
-  }
-}
-
-// Get a browser profile based on retry count
-function getBrowserProfile(retryCount = 0) {
-  const index = retryCount % BROWSER_PROFILES.length;
-  return BROWSER_PROFILES[index];
-}
-
 // Initialize a WhatsApp connection for a bot
 export async function initWhatsAppConnection(botId) {
   try {
-    console.log(`Starting WhatsApp connection initialization for bot ${botId}`);
+    console.log(`Starting WhatsApp connection for bot ${botId}`);
     
     // Ensure auth directory exists
-    await ensureAuthDir();
+    const botAuthDir = path.join(AUTH_DIR, botId.toString());
+    await fs.mkdir(botAuthDir, { recursive: true });
     
     // If we already have a connection, close it first
     if (activeConnections.has(botId)) {
-      console.log(`Closing existing connection for bot ${botId}`);
+      const { sock } = activeConnections.get(botId);
       try {
-        const { sock, sessionDir } = activeConnections.get(botId);
-        if (sock && typeof sock.end === 'function') {
+        // Only call end() if the socket is properly established
+        if (sock && typeof sock.end === 'function' && sock.ws && sock.ws.readyState === 1) {
           sock.end();
-        }
-        activeConnections.delete(botId);
-        connectionStatus.delete(botId);
-        
-        // Clean up session directory
-        try {
-          await fs.rm(sessionDir, { recursive: true, force: true });
-          console.log(`Removed session directory for bot ${botId}`);
-        } catch (cleanupError) {
-          console.error('Error cleaning up session directory:', cleanupError);
         }
       } catch (error) {
         console.error('Error closing existing connection:', error);
       }
+      activeConnections.delete(botId);
+      connectionStatus.delete(botId);
     }
     
-    // Create a unique session folder for this connection
-    const sessionId = randomUUID();
-    const sessionDir = path.join(AUTH_DIR, sessionId);
-    
-    // Ensure the session directory exists
-    await fs.mkdir(sessionDir, { recursive: true });
-    console.log(`Created session directory: ${sessionDir}`);
-    
     // Initialize the auth state
-    console.log(`Initializing auth state for bot ${botId}`);
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    const { state, saveCreds } = await useMultiFileAuthState(botAuthDir);
     
-    // Make the auth state cacheable for better performance
-    const logger = createLogger(`wa-${botId}`);
-    const keys = makeCacheableSignalKeyStore(state.keys, logger);
-    
-    // Fetch the latest version of WhatsApp Web
-    const { version, isLatest } = await fetchLatestBaileysVersion();
-    console.log(`Using WA v${version.join('.')}, isLatest: ${isLatest}`);
-    
-    // Get browser profile based on retry count
-    const retryCount = connectionRetries.get(botId) || 0;
-    const browserProfile = getBrowserProfile(retryCount);
-    console.log(`Using browser profile: ${browserProfile.join(' ')} (retry: ${retryCount})`);
-    
-    // Initialize the WhatsApp socket with optimized config
-    console.log(`Creating WhatsApp socket for bot ${botId}`);
-    
-    // Create socket with optimized configuration
+    // Create socket with basic configuration
     const sock = makeWASocket({
-      auth: {
-        creds: state.creds,
-        // Use cacheable key store
-        keys: keys
-      },
+      auth: state,
+      browser: ['WhatsApp Bot', 'Chrome', '1.0.0'],
       printQRInTerminal: false, // We'll handle QR codes ourselves
-      browser: browserProfile,
-      version: version,
-      connectTimeoutMs: 60000,
-      keepAliveIntervalMs: 15000, // Reduced to avoid timeout issues
-      emitOwnEvents: true,
-      syncFullHistory: false,
-      linkPreviewImageThumbnailWidth: 192,
-      generateHighQualityLinkPreview: false,
-      markOnlineOnConnect: false,
-      defaultQueryTimeoutMs: 60000,
-      retryRequestDelayMs: 500,
-      transactionOpts: { maxCommitRetries: 10, delayBetweenTriesMs: 600 },
-      logger: logger
+      connectTimeoutMs: 30000, // 30 seconds timeout
+      keepAliveIntervalMs: 10000, // 10 seconds keep-alive
     });
     
-    console.log(`Socket created for bot ${botId}`);
-    
     // Store the socket in the active connections map
-    activeConnections.set(botId, { sock, sessionDir, saveCreds });
+    activeConnections.set(botId, { sock, saveCreds });
+    
+    // Initialize connection status
     connectionStatus.set(botId, { qr: null, connected: false });
-    connectionRetries.set(botId, retryCount);
-    connectionErrors.delete(botId);
-    console.log(`Connection initialized for bot ${botId}`);
     
     // Handle connection updates
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
-      console.log(`Connection update for bot ${botId}:`, { 
-        connection, 
-        qr: qr ? `QR received (${qr.length} chars)` : 'No QR',
-        lastDisconnect: lastDisconnect ? 
-          `${lastDisconnect.error?.output?.payload?.error || 'unknown'} (${lastDisconnect.error?.output?.statusCode || 'no code'})` : 
-          'No disconnect info'
-      });
       
-      // If QR code is available, store it
+      // If we got a QR code, store it
       if (qr) {
-        console.log(`QR code generated for bot ${botId} (length: ${qr.length})`);
         try {
-          // Convert the QR string directly to a data URL using qrcode library with higher quality settings
-          const qrDataUrl = await QRCode.toDataURL(qr, {
-            errorCorrectionLevel: 'H', // Higher error correction for better scanning
-            margin: 4,
-            width: 400,
-            color: {
-              dark: '#000000',
-              light: '#ffffff'
-            }
-          });
-          
-          console.log(`QR code converted to data URL for bot ${botId} (length: ${qrDataUrl.length})`);
-          connectionStatus.set(botId, { qr: qrDataUrl, connected: false });
-        } catch (error) {
-          console.error(`Error converting QR code for bot ${botId}:`, error);
-          
-          // If conversion fails, try to use the raw QR data
-          connectionStatus.set(botId, { qr, connected: false });
+          // Generate QR code
+          const qrUrl = await QRCode.toDataURL(qr);
+          connectionStatus.set(botId, { qr: qrUrl, connected: false });
+          console.log(`QR code generated for bot ${botId}`);
+        } catch (qrError) {
+          console.error('Error generating QR code:', qrError);
         }
       }
       
-      // If connected, save the session
+      // If connected, update status and save to database
       if (connection === 'open') {
         console.log(`Bot ${botId} connected successfully`);
         try {
@@ -228,52 +104,20 @@ export async function initWhatsAppConnection(botId) {
           
           const durationInDays = subscriptions[0].duration_in_days;
           
-          // Read the auth files
-          const credentialsPath = path.join(sessionDir, 'creds.json');
-          const credsBuffer = await fs.readFile(credentialsPath);
-          const creds = JSON.parse(credsBuffer.toString());
-          
-          // Serialize the auth state
-          const authJSON = {
-            creds,
-            // Include any other necessary auth data
-          };
-          
           // Update the bot in the database
           await executeQuery(`
             UPDATE whatsapp_bots
             SET 
-              whatsapp_session = ?,
               activated_at = NOW(),
               expires_at = DATE_ADD(NOW(), INTERVAL ? DAY),
               status = 'active'
             WHERE id = ?
-          `, [JSON.stringify(authJSON), durationInDays, botId]);
-          
-          console.log(`Bot ${botId} saved to database as active`);
+          `, [durationInDays, botId]);
           
           // Update connection status
           connectionStatus.set(botId, { qr: null, connected: true });
-          connectionRetries.delete(botId);
           connectionErrors.delete(botId);
           
-          // Clean up session directory
-          try {
-            await fs.rm(sessionDir, { recursive: true, force: true });
-          } catch (cleanupError) {
-            console.error('Error cleaning up session directory:', cleanupError);
-          }
-          
-          // Close the socket after saving
-          setTimeout(() => {
-            if (activeConnections.has(botId)) {
-              const { sock } = activeConnections.get(botId);
-              if (sock && typeof sock.end === 'function') {
-                sock.end();
-              }
-              activeConnections.delete(botId);
-            }
-          }, 5000);
         } catch (error) {
           console.error('Error saving WhatsApp session:', error);
         }
@@ -286,201 +130,308 @@ export async function initWhatsAppConnection(botId) {
           : null;
         
         const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
-        const errorOutput = lastDisconnect?.error?.output?.payload?.error || 'Unknown error type';
-        const errorCode = lastDisconnect?.error?.output?.payload?.data?.code || 0;
         
-        console.log(`Bot ${botId} connection closed with status code: ${statusCode}, error: ${errorMessage}, type: ${errorOutput}, code: ${errorCode}`);
-        
-        // Store error information for debugging
+        // Store error information
         connectionErrors.set(botId, { 
-          code: errorCode || statusCode, 
+          code: statusCode, 
           message: errorMessage, 
-          type: errorOutput,
           timestamp: new Date().toISOString()
         });
         
-        // Check specific error conditions
-        const isDeviceLinkingError = errorOutput === 'device.link.failure' || 
-                                    errorMessage.includes("couldn't link") || 
-                                    errorMessage.includes("device linking failed");
+        // Check if we should reconnect
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
         
-        const isStreamError = errorMessage.includes("Stream Errored") || errorCode === 515;
-        const isLoggedOut = statusCode === DisconnectReason.loggedOut;
-        const isBadSession = statusCode === DisconnectReason.badSession;
-        const isConnectionLost = statusCode === DisconnectReason.connectionLost;
-        const isConnectionClosed = statusCode === DisconnectReason.connectionClosed;
-        const isRestartRequired = statusCode === DisconnectReason.restartRequired || 
-                                  errorMessage.includes("restart required");
-        
-        // Determine if we should try a different approach
-        const shouldTryDifferentApproach = isDeviceLinkingError || isBadSession || isStreamError || isRestartRequired;
-        // Determine if we should simply retry
-        const shouldRetry = isConnectionLost || isConnectionClosed;
-        // Determine if we should give up
-        const shouldGiveUp = isLoggedOut;
-        
-        const retryCount = connectionRetries.get(botId) || 0;
-        
-        if (shouldGiveUp) {
-          console.log(`Bot ${botId} cannot reconnect: permanent error`);
+        if (shouldReconnect) {
+          console.log(`Bot ${botId} disconnected. Reconnecting...`);
+          
+          // Wait a moment before reconnecting
+          setTimeout(() => {
+            // Check if we're still in a disconnected state before trying to reconnect
+            const status = connectionStatus.get(botId);
+            if (!status?.connected) {
+            initWhatsAppConnection(botId);
+            }
+          }, 5000);
+        } else {
+          console.log(`Bot ${botId} disconnected. Not reconnecting.`);
           // Clean up connection resources
           if (activeConnections.has(botId)) {
-            const { sessionDir } = activeConnections.get(botId);
-            try {
-              await fs.rm(sessionDir, { recursive: true, force: true });
-            } catch (cleanupError) {
-              console.error('Error cleaning up session directory:', cleanupError);
-            }
             activeConnections.delete(botId);
-            connectionRetries.delete(botId);
           }
-        } else if (shouldTryDifferentApproach && retryCount < MAX_RETRY_ATTEMPTS) {
-          // Try a completely different approach (new session, different browser profile)
-          connectionRetries.set(botId, retryCount + 1);
-          console.log(`Bot ${botId} reconnecting with different approach, attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS}`);
+        }
+      }
+    });
+    
+    // Save credentials whenever they are updated
+    sock.ev.on('creds.update', async () => {
+      try {
+        // Save to file system first
+        await saveCreds();
+        
+        // Then try to save to database
+        await saveSessionToDatabase(botId);
+        
+        console.log(`Updated credentials saved for bot ${botId}`);
+      } catch (error) {
+        console.error(`Error saving credentials for bot ${botId}:`, error);
+      }
+    });
+    
+    // Handle call events
+    sock.ev.on('call', async ([call]) => {
+      if (call && call.isGroup === false) {
+        const callerId = call.from;
+        const callId = call.id;
+        const isVideo = call.isVideo;
+        
+        console.log(`Received ${isVideo ? 'video' : 'voice'} call from ${callerId} with ID ${callId}`);
+        
+        try {
+          // Log the call event
+          await executeQuery(`
+            INSERT INTO whatsapp_calls (
+              bot_id,
+              caller_jid,
+              call_id,
+              call_status
+            ) VALUES (?, ?, ?, 'received')
+          `, [botId, callerId, callId]);
           
-          // Wait a bit longer before retry
-          const delay = Math.min(3000 * Math.pow(2, retryCount), 15000);
-          setTimeout(() => {
-            // Clean up old connection first
-            if (activeConnections.has(botId)) {
-              const { sessionDir } = activeConnections.get(botId);
-              try {
-                fs.rm(sessionDir, { recursive: true, force: true });
-              } catch (error) {
-                console.error('Error removing session directory:', error);
+          // Check if call blocking is enabled for this bot
+          const settings = await executeQuery(`
+            SELECT * FROM call_blocking_settings WHERE bot_id = ?
+          `, [botId]);
+          
+          if (settings.length > 0 && settings[0].is_enabled) {
+            // Get call blocking settings
+            const callSettings = settings[0];
+            const dailyCallLimit = callSettings.daily_call_limit;
+            const blockType = callSettings.block_type;
+            const autoReplyMessage = callSettings.auto_reply_message;
+            
+            // Check if the caller is already blocked
+            const blockedContact = await executeQuery(`
+              SELECT * FROM whatsapp_blocked_contacts 
+              WHERE bot_id = ? AND contact_jid = ? AND is_active = TRUE
+            `, [botId, callerId]);
+            
+            if (blockedContact.length > 0) {
+              // Contact is blocked, reject the call
+              await rejectCall(botId, callId, callerId);
+          
+              // Send auto-reply message
+              await sendMessage(botId, callerId, autoReplyMessage);
+              
+              // Update call status
+              await executeQuery(`
+                UPDATE whatsapp_calls 
+                SET call_status = 'blocked' 
+                WHERE bot_id = ? AND call_id = ?
+              `, [botId, callId]);
+              
+            } else {
+              // Check how many calls this user has made today
+              const todayCalls = await executeQuery(`
+                SELECT COUNT(*) as call_count 
+                FROM whatsapp_calls 
+                WHERE bot_id = ? 
+                AND caller_jid = ? 
+                AND call_timestamp >= CURDATE()
+              `, [botId, callerId]);
+              
+              const callCount = todayCalls[0].call_count;
+              
+              if (callCount > dailyCallLimit) {
+                // Caller has exceeded daily limit, block them
+                const expiresAt = blockType === 'temporary' 
+                  ? 'DATE_ADD(NOW(), INTERVAL 1 DAY)' 
+                  : 'NULL';
+                
+                await executeQuery(`
+                  INSERT INTO whatsapp_blocked_contacts (
+                    bot_id,
+                    contact_jid,
+                    reason,
+                    expires_at,
+                    is_active
+                  ) VALUES (?, ?, ?, ${expiresAt}, TRUE)
+                  ON DUPLICATE KEY UPDATE 
+                    reason = VALUES(reason),
+                    expires_at = VALUES(expires_at),
+                    is_active = TRUE
+                `, [botId, callerId, `Exceeded daily call limit of ${dailyCallLimit} calls`]);
+                
+                // Reject the call
+                await rejectCall(botId, callId, callerId);
+                
+                // Send auto-reply message
+                await sendMessage(botId, callerId, autoReplyMessage);
+                
+                // Update call status
+                await executeQuery(`
+                  UPDATE whatsapp_calls 
+                  SET call_status = 'blocked' 
+                  WHERE bot_id = ? AND call_id = ?
+                `, [botId, callId]);
+              } else {
+                // Just reject the call without blocking
+                await rejectCall(botId, callId, callerId);
+                
+                // Update call status
+                await executeQuery(`
+                  UPDATE whatsapp_calls 
+                  SET call_status = 'rejected' 
+                  WHERE bot_id = ? AND call_id = ?
+                `, [botId, callId]);
               }
-              activeConnections.delete(botId);
+            }
+          } else {
+            // Call blocking not enabled, just reject the call
+            await rejectCall(botId, callId, callerId);
+            
+            // Update call status
+            await executeQuery(`
+              UPDATE whatsapp_calls 
+              SET call_status = 'rejected' 
+              WHERE bot_id = ? AND call_id = ?
+            `, [botId, callId]);
+          }
+        } catch (error) {
+          console.error(`Error handling call from ${callerId}:`, error);
+        }
+      }
+    });
+    
+    // Handle messages
+    sock.ev.on('messages.upsert', async (m) => {
+      if (m.type === 'notify') {
+        for (const msg of m.messages) {
+          if (!msg.key.fromMe && msg.message) {
+            const sender = msg.key.remoteJid;
+            const messageType = Object.keys(msg.message)[0];
+            let messageText = '';
+    
+            // Extract message content based on type
+            if (messageType === 'conversation') {
+              messageText = msg.message.conversation;
+            } else if (messageType === 'extendedTextMessage') {
+              messageText = msg.message.extendedTextMessage.text;
             }
             
-            // Start fresh connection with new session
-            initWhatsAppConnection(botId);
-          }, delay);
-        } else if (shouldRetry && retryCount < MAX_RETRY_ATTEMPTS) {
-          // Simple retry for connection issues
-          connectionRetries.set(botId, retryCount + 1);
-          console.log(`Bot ${botId} reconnecting, attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS}`);
-          
-          // Exponential backoff for retries
-          const delay = Math.min(1000 * Math.pow(2, retryCount), 10000);
-          setTimeout(() => {
-            if (activeConnections.has(botId)) {
-              const { sessionDir } = activeConnections.get(botId);
-              try { fs.rm(sessionDir, { recursive: true, force: true }); } catch (e) { console.error('Error removing session dir:', e); }
-              activeConnections.delete(botId);
-              connectionStatus.delete(botId);
-              connectionRetries.delete(botId);
-            }
-            setTimeout(() => initWhatsAppConnection(botId), delay);
-          }, 0);
-        } else {
-          // We've tried everything or hit max retries
-          console.log(`Bot ${botId} giving up after ${retryCount} attempts`);
-          // Clean up if disconnected
-          if (activeConnections.has(botId)) {
-            const { sessionDir } = activeConnections.get(botId);
-            try {
-              await fs.rm(sessionDir, { recursive: true, force: true });
-            } catch (cleanupError) {
-              console.error('Error cleaning up session directory:', cleanupError);
-            }
-            activeConnections.delete(botId);
-            connectionRetries.delete(botId);
-          }
-        }
-      }
-    });
-    
-    // Add error handler
-    sock.ev.on('connection.error', (error) => {
-      console.error(`Connection error for bot ${botId}:`, error);
-      connectionErrors.set(botId, { 
-        message: error.message || 'Unknown error',
-        stack: error.stack,
-        timestamp: new Date().toISOString()
-      });
-      
-      // For stream errors, try to reconnect
-      if (error.message && error.message.includes("Stream Errored")) {
-        const retryCount = connectionRetries.get(botId) || 0;
-        if (retryCount < MAX_RETRY_ATTEMPTS) {
-          console.log(`Stream error detected for bot ${botId}, will reconnect`);
-          
-          // Increment retry count
-          connectionRetries.set(botId, retryCount + 1);
-          
-          // Close the current connection
-          if (sock && typeof sock.end === 'function') {
-            sock.end();
-          }
-          
-          // Try to reconnect after a delay
-          setTimeout(() => {
-            if (activeConnections.has(botId)) {
-              const { sessionDir } = activeConnections.get(botId);
-              try { fs.rm(sessionDir, { recursive: true, force: true }); } catch (e) { console.error('Error removing session dir:', e); }
-              activeConnections.delete(botId);
-              connectionStatus.delete(botId);
-              connectionRetries.delete(botId);
-            }
-            setTimeout(() => initWhatsAppConnection(botId), 5000);
-          }, 0);
-        }
-      }
-    });
-    
-    // Save credentials on update
-    sock.ev.on('creds.update', async () => {
-      console.log(`Credentials updated for bot ${botId}`);
-      await saveCreds();
-    });
-    
-    // Add a failsafe to check for QR code periodically
-    const qrCheckInterval = setInterval(async () => {
-      const status = getConnectionStatus(botId);
-      
-      // If we already have a QR code or we're connected, no need to check
-      if (status.qr || status.connected) {
-        clearInterval(qrCheckInterval);
-        return;
+            // Log received message
+            console.log(`New message from ${sender}: ${messageText}`);
+            
+            // Check for automated responses from database
+            if (messageText) {
+              try {
+                // Determine if this is a group chat or private chat
+                const isGroupChat = sender.endsWith('@g.us');
+                const chatType = isGroupChat ? 'group' : 'private';
+                
+                // Check if sender is blocked
+                const isBlocked = await executeQuery(`
+                  SELECT 1 FROM whatsapp_blocked_contacts
+                  WHERE bot_id = ? AND contact_jid = ? AND is_active = TRUE
+                `, [botId, sender]);
+                
+                if (isBlocked.length > 0) {
+                  // Get auto-reply message from settings
+                  const settings = await executeQuery(`
+                    SELECT auto_reply_message FROM call_blocking_settings WHERE bot_id = ?
+                  `, [botId]);
+                  
+                  const blockMessage = settings.length > 0 
+                    ? settings[0].auto_reply_message 
+                    : "Sorry, you have been blocked from contacting this number.";
+                  
+                  // Send the block message
+                  await sock.sendMessage(sender, { text: blockMessage });
+                  
+                  // Don't process further
+                  continue;
       }
       
-      // Check if there's an active connection
-      if (!activeConnections.has(botId)) {
-        clearInterval(qrCheckInterval);
-        return;
-      }
-      
-      // Get the socket from active connections
-      const { sock } = activeConnections.get(botId);
-      
-      // If socket has QR but it wasn't processed, handle it now
-      if (sock.qr) {
-        console.log(`Failsafe: QR code found for bot ${botId} (length: ${sock.qr.length})`);
-        try {
-          const qrDataUrl = await QRCode.toDataURL(sock.qr, {
-            errorCorrectionLevel: 'H',
-            margin: 4,
-            width: 400,
-            color: {
-              dark: '#000000',
-              light: '#ffffff'
-            }
-          });
-          
-          console.log(`Failsafe: QR code converted for bot ${botId}`);
-          connectionStatus.set(botId, { qr: qrDataUrl, connected: false });
+                // Get matching response from database with chat type filter
+                const responses = await executeQuery(`
+                  SELECT * FROM bot_responses
+                  WHERE bot_id = ? 
+                  AND trigger_text = ? 
+                  AND is_active = TRUE
+                  AND (chat_type = 'all' OR chat_type = ?)
+                  LIMIT 1
+                `, [botId, messageText, chatType]);
+                
+                if (responses.length > 0) {
+                  const response = responses[0];
+                  
+                  // Send the automated response
+                  await sock.sendMessage(
+                    sender, 
+                    { text: response.response_text }
+                  );
+                  
+                  console.log(`Automated reply sent to ${sender}`);
+                  
+                  // Log the outgoing message
+                  await executeQuery(`
+                    INSERT INTO whatsapp_messages (
+                      id,
+                      bot_id,
+                      sender,
+                      recipient,
+                      message_text,
+                      direction
+                    ) VALUES (UUID(), ?, ?, ?, ?, 'outbound')
+                  `, [
+                    botId,
+                    'bot',
+                    sender,
+                    response.response_text
+                  ]);
+                } else {
+                  // No matching response found, use default response
+                  await sock.sendMessage(
+                    sender, 
+                    { text: `I received your message: "${messageText}". However, I don't have a specific response for this.` }
+                  );
+                  console.log(`Default reply sent to ${sender}`);
+                }
+                
+                // Log the incoming message
+                await executeQuery(`
+                  INSERT INTO whatsapp_messages (
+                    id,
+                    bot_id,
+                    sender,
+                    recipient,
+                    message_text,
+                    direction
+                  ) VALUES (UUID(), ?, ?, ?, ?, 'inbound')
+                `, [
+                  botId,
+                  sender,
+                  'bot',
+                  messageText
+                ]);
+                
         } catch (error) {
-          console.error(`Failsafe: Error converting QR code for bot ${botId}:`, error);
-          connectionStatus.set(botId, { qr: sock.qr, connected: false });
+                console.error(`Error processing message from ${sender}:`, error);
+                
+                // Send a fallback response
+                try {
+                  await sock.sendMessage(
+                    sender, 
+                    { text: "Sorry, I encountered an error processing your message." }
+                  );
+                } catch (sendError) {
+                  console.error(`Error sending fallback response to ${sender}:`, sendError);
+                }
+              }
+            }
+          }
         }
       }
-    }, 3000);
-    
-    // Clean up QR check interval after 2 minutes (should be connected by then)
-    setTimeout(() => {
-      clearInterval(qrCheckInterval);
-    }, 2 * 60 * 1000);
+    });
     
     return true;
   } catch (error) {
@@ -494,47 +445,86 @@ export async function initWhatsAppConnection(botId) {
   }
 }
 
-// Get connection status
-export function getConnectionStatus(botId) {
-  return connectionStatus.get(botId) || { qr: null, connected: false };
+// Reject a WhatsApp call
+export async function rejectCall(botId, callId, callerId) {
+  try {
+    if (!activeConnections.has(botId)) {
+      throw new Error('Bot not connected');
+    }
+    
+    const { sock } = activeConnections.get(botId);
+    
+    // Reject the call
+    await sock.rejectCall(callId, callerId);
+    console.log(`Call from ${callerId} rejected`);
+    return true;
+  } catch (error) {
+    console.error(`Error rejecting call for bot ${botId}:`, error);
+    return false;
+  }
 }
 
-// Check if a bot is connected
-export function isBotConnected(botId) {
+// Get WhatsApp connection status for a bot
+export async function getConnectionStatus(botId) {
+  try {
   const status = connectionStatus.get(botId);
-  return status?.connected || false;
+    const error = connectionErrors.get(botId);
+    
+    if (!status) {
+      return { 
+        connected: false,
+        error: error || { message: 'Bot not initialized' }
+      };
 }
 
-// Get QR code for a bot
-export function getBotQrCode(botId) {
-  const status = connectionStatus.get(botId);
-  return status?.qr || null;
+    return {
+      ...status,
+      error
+    };
+  } catch (error) {
+    console.error('Error getting connection status:', error);
+    return { 
+      connected: false,
+      error: { message: 'Error getting status' }
+    };
+  }
 }
 
-// Get the latest error for a bot
-export function getBotError(botId) {
-  return connectionErrors.get(botId) || null;
+// Save WhatsApp session data to database
+async function saveSessionToDatabase(botId) {
+  try {
+    // Get session state
+    const botAuthDir = path.join(AUTH_DIR, botId.toString());
+    const { state } = await useMultiFileAuthState(botAuthDir);
+    
+    // Serialize auth state to store in database
+    const sessionData = JSON.stringify(state);
+    
+    // Update database
+    await executeQuery(`
+      UPDATE whatsapp_bots
+      SET whatsapp_session = ?
+      WHERE id = ?
+    `, [sessionData, botId]);
+    
+    return true;
+  } catch (error) {
+    console.error('Error saving session to database:', error);
+    return false;
+  }
 }
 
 // Close a bot connection
 export async function closeBotConnection(botId) {
   if (activeConnections.has(botId)) {
-    const { sock, sessionDir } = activeConnections.get(botId);
+    const { sock } = activeConnections.get(botId);
     try {
-      if (sock && typeof sock.end === 'function') {
+      // Only call end() if the socket is properly established
+      if (sock && typeof sock.end === 'function' && sock.ws && sock.ws.readyState === 1) {
         sock.end();
       }
       activeConnections.delete(botId);
       connectionStatus.delete(botId);
-      connectionRetries.delete(botId);
-      
-      // Clean up session directory
-      try {
-        await fs.rm(sessionDir, { recursive: true, force: true });
-      } catch (cleanupError) {
-        console.error('Error cleaning up session directory:', cleanupError);
-      }
-      
       return true;
     } catch (error) {
       console.error(`Error closing connection for bot ${botId}:`, error);
@@ -545,31 +535,66 @@ export async function closeBotConnection(botId) {
   return false;
 }
 
-// Reset a bot connection (force fresh start)
-export async function resetBotConnection(botId) {
-  await closeBotConnection(botId);
-  connectionRetries.delete(botId);
-  connectionErrors.delete(botId);
-  connectionStatus.delete(botId);
+// Get list of connected bots
+export function getConnectedBots() {
+  const connected = [];
   
-  // Wait a moment before reinitializing
-  await delay(1000);
+  for (const [botId, status] of connectionStatus.entries()) {
+    if (status.connected) {
+      connected.push(botId);
+    }
+  }
   
-  return initWhatsAppConnection(botId);
+  return connected;
 }
 
-// Get all active connections
-export function getActiveConnections() {
-  return [...activeConnections.keys()];
+// Send a message from a bot
+export async function sendMessage(botId, recipient, message) {
+  try {
+    if (!activeConnections.has(botId)) {
+      throw new Error('Bot not connected');
+    }
+    
+    const { sock } = activeConnections.get(botId);
+  
+    // Format the recipient number if needed
+    let formattedRecipient = recipient;
+    if (!recipient.includes('@')) {
+      // Add WhatsApp suffix if not present
+      formattedRecipient = `${recipient.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+    }
+    
+    // Send the message
+    await sock.sendMessage(formattedRecipient, { text: message });
+    return true;
+  } catch (error) {
+    console.error(`Error sending message from bot ${botId}:`, error);
+    return false;
+  }
+}
+
+// Clean up expired blocks
+export async function cleanupExpiredBlocks() {
+  try {
+    // Update is_active to FALSE for all entries where expires_at is in the past
+    await executeQuery(`
+      UPDATE whatsapp_blocked_contacts
+      SET is_active = FALSE
+      WHERE expires_at IS NOT NULL AND expires_at < NOW()
+    `);
+    
+    return true;
+  } catch (error) {
+    console.error('Error cleaning up expired blocks:', error);
+    return false;
+  }
 }
 
 export default {
   initWhatsAppConnection,
   getConnectionStatus,
-  isBotConnected,
-  getBotQrCode,
-  getBotError,
+  getConnectedBots,
+  sendMessage,
   closeBotConnection,
-  resetBotConnection,
-  getActiveConnections
+  cleanupExpiredBlocks
 }; 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { executeQuery } from '@/lib/db/config.js';
 import { initWhatsAppConnection, getConnectionStatus, getBotError, resetBotConnection } from '@/lib/whatsapp/connection.js';
+import { executeQuery } from '@/lib/db/config.js';
 
 // Allow server to take some time to generate QR
 export const maxDuration = 120;
@@ -8,19 +8,18 @@ export const maxDuration = 120;
 // Endpoint to get QR code for a bot
 export async function GET(request, { params }) {
   try {
-    // Properly handle params by awaiting them
-    const botId = params.botId;
+    // Get bot ID from params - using proper destructuring 
+    const { botId } = params;
     const searchParams = request.nextUrl.searchParams;
     const forcereset = searchParams.get('forcereset');
     const isPoll = searchParams.get('poll');
-    const timestamp = searchParams.get('t');
     
-    // Validate bot ID - accept UUID format or numeric IDs
+    // Validate bot ID
     if (!botId) {
       return NextResponse.json({ error: 'Missing bot ID' }, { status: 400 });
     }
     
-    console.log(`QR request for bot ${botId}${forcereset ? ' (force reset)' : ''}${isPoll ? ' (polling)' : ''} at ${timestamp}`);
+    console.log(`QR request for bot ${botId}${forcereset ? ' (force reset)' : ''}${isPoll ? ' (polling)' : ''}`);
     
     // Check if the bot exists
     const bots = await executeQuery(
@@ -34,11 +33,6 @@ export async function GET(request, { params }) {
     
     const bot = bots[0];
     
-    // Check if bot is already active
-    if (bot.status === 'active' && bot.whatsapp_session) {
-      return NextResponse.json({ active: true });
-    }
-    
     // If a force reset is requested, reset the connection
     if (forcereset === 'true') {
       console.log(`Forcing reset of bot ${botId} connection`);
@@ -46,12 +40,37 @@ export async function GET(request, { params }) {
       return NextResponse.json({ reset: true });
     }
     
+    // Check if the bot has a valid session that should be prioritized
+    const hasSession = bot.whatsapp_session !== null;
+    
     // Get current connection status
     const status = getConnectionStatus(botId);
     
-    // If this is a polling request, handle differently
+    // First check if the bot already has a session - if so, don't show QR
+    if (hasSession && !forcereset) {
+      // Verify if we can connect with existing session
+      const sessionQuery = await executeQuery(
+        'SELECT updated_at FROM whatsapp_bots WHERE id = ? AND whatsapp_session IS NOT NULL',
+        [botId]
+      );
+      
+      if (sessionQuery.length > 0) {
+        console.log(`Bot ${botId} has a stored session, no need for QR code`);
+        return NextResponse.json({ 
+          active: true,
+          message: 'Bot has an existing session, no QR needed. Use force reset to start a new session.'
+        });
+      }
+    }
+    
+    // If this is a polling request, check if connected
     if (isPoll === 'true') {
-      // If there's an error, return it for debugging
+      // Check if connected
+      if (status.connected) {
+        return NextResponse.json({ success: true });
+      }
+      
+      // Check for errors
       const error = getBotError(botId);
       if (error) {
         return NextResponse.json({ 
@@ -60,13 +79,13 @@ export async function GET(request, { params }) {
         });
       }
       
-      // Check if connected
-      if (status.connected) {
-        return NextResponse.json({ success: true });
-      }
-      
       // Still waiting
       return NextResponse.json({ success: false });
+    }
+    
+    // Check if bot is already active
+    if (bot.status === 'active' && status.connected) {
+      return NextResponse.json({ active: true });
     }
     
     // Return QR code if available
@@ -75,33 +94,10 @@ export async function GET(request, { params }) {
       return NextResponse.json({ qr: status.qr });
     }
     
-    // Check if connected
-    if (status.connected) {
-      return NextResponse.json({ active: true });
-    }
-    
     // Check for errors
     const error = getBotError(botId);
     if (error) {
       console.log(`Error for bot ${botId}:`, error);
-      
-      // Check if it's a device linking error
-      const isDeviceLinkingError = 
-        error.type === 'device.link.failure' || 
-        (error.message && (
-          error.message.includes("couldn't link") || 
-          error.message.includes("device linking failed")
-        ));
-      
-      if (isDeviceLinkingError) {
-        return NextResponse.json({ 
-          error: "Couldn't link device. Please reset and try again.", 
-          deviceLinkingError: true,
-          errorDetails: error
-        });
-      }
-      
-      // For other errors, provide the details
       return NextResponse.json({ 
         error: `Connection error: ${error.message || 'Unknown error'}`, 
         errorDetails: error
@@ -110,17 +106,35 @@ export async function GET(request, { params }) {
     
     // If no connection exists, initialize one
     if (!status.qr && !status.connected) {
-      console.log(`Initializing connection for bot ${botId}`);
-      const initialized = await initWhatsAppConnection(botId);
+      // Check if we've already tried to initialize within the last 10 seconds
+      const lastInitTime = request.nextUrl.searchParams.get('lastInit');
+      const now = Date.now();
       
-      if (!initialized) {
+      if (!lastInitTime || now - parseInt(lastInitTime) > 10000) {
+        console.log(`Initializing connection for bot ${botId}`);
+        const initialized = await initWhatsAppConnection(botId);
+        
+        if (!initialized) {
+          return NextResponse.json({ 
+            error: 'Failed to initialize WhatsApp connection. Please try again.' 
+          });
+        }
+        
+        // Connection initialized, but QR not ready yet
+        console.log(`Connection initialized for bot ${botId}, waiting for QR`);
+          
+        // Return with timestamp to prevent rapid reinitializations
         return NextResponse.json({ 
-          error: 'Failed to initialize WhatsApp connection. Please try again.' 
+          waiting: true, 
+          lastInit: now 
+        });
+      } else {
+        // Too soon to retry initialization
+        return NextResponse.json({ 
+          waiting: true,
+          message: 'Waiting for QR code generation...'
         });
       }
-      
-      // Connection initialized, but QR not ready yet
-      console.log(`Connection initialized for bot ${botId}, waiting for QR`);
     }
     
     // Return a waiting response
@@ -128,58 +142,6 @@ export async function GET(request, { params }) {
     return NextResponse.json({ waiting: true });
   } catch (error) {
     console.error('Error in QR endpoint:', error);
-    return NextResponse.json(
-      { error: 'Server error: ' + error.message },
-      { status: 500 }
-    );
-  }
-}
-
-// Endpoint to force connect a bot (for development only)
-export async function POST(request, { params }) {
-  try {
-    // Only allow in development
-    if (process.env.NODE_ENV !== 'development') {
-      return NextResponse.json(
-        { error: 'This endpoint is only available in development mode' },
-        { status: 403 }
-      );
-    }
-    
-    // Properly handle params by awaiting them
-    const botId = params.botId;
-    
-    // Validate bot ID - accept UUID format or numeric IDs
-    if (!botId) {
-      return NextResponse.json({ error: 'Missing bot ID' }, { status: 400 });
-    }
-    
-    console.log(`Force connect request for bot ${botId}`);
-    
-    // Check if the bot exists
-    const bots = await executeQuery(
-      'SELECT * FROM whatsapp_bots WHERE id = ?',
-      [botId]
-    );
-    
-    if (bots.length === 0) {
-      return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
-    }
-    
-    // Force activate the bot
-    await executeQuery(`
-      UPDATE whatsapp_bots
-      SET 
-        whatsapp_session = ?,
-        activated_at = NOW(),
-        expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY),
-        status = 'active'
-      WHERE id = ?
-    `, [JSON.stringify({ forceConnected: true }), botId]);
-    
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Error in force connect endpoint:', error);
     return NextResponse.json(
       { error: 'Server error: ' + error.message },
       { status: 500 }

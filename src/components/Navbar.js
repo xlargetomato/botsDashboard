@@ -99,7 +99,7 @@ export default function Navbar({ isStatic = false }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const pathname = usePathname();
   
-  const isAuthPage = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password' || pathname === '/reset-password';
+  const isAuthPage = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password' || pathname === '/reset-password' || pathname === '/verify';
   const isHomePage = pathname === '/';
 
   const iconColor = theme === 'dark' ? 'white' : 'black'
